@@ -1,12 +1,14 @@
 module github.com/roadrunner-server/pool
 
-go 1.22.5
+go 1.22
+
+toolchain go1.22.5
 
 require (
 	github.com/goccy/go-json v0.10.3
 	github.com/roadrunner-server/errors v1.4.0
-	github.com/roadrunner-server/events v1.0.0
-	github.com/roadrunner-server/goridge/v3 v3.8.2
+	github.com/roadrunner-server/events v1.0.1
+	github.com/roadrunner-server/goridge/v3 v3.8.3
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/stretchr/testify v1.9.0
 	go.uber.org/zap v1.27.0
