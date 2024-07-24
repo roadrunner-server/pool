@@ -6,7 +6,7 @@ toolchain go1.22.5
 
 require (
 	github.com/goccy/go-json v0.10.3
-	github.com/roadrunner-server/errors v1.4.0
+	github.com/roadrunner-server/errors v1.4.1
 	github.com/roadrunner-server/events v1.0.1
 	github.com/roadrunner-server/goridge/v3 v3.8.3
 	github.com/shirou/gopsutil v3.21.11+incompatible
