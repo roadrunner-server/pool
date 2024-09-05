@@ -51,8 +51,8 @@ func ExecuteFromUser(cmd *exec.Cmd, u string) error {
 	}
 
 	cmd.SysProcAttr.Credential = &syscall.Credential{
-		Uid: uint32(usrI32),
-		Gid: uint32(grI32),
+		Uid: uint32(usrI32), //nolint:gosec
+		Gid: uint32(grI32),  //nolint:gosec
 	}
 
 	return nil

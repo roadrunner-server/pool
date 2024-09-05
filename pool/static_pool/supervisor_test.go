@@ -199,8 +199,9 @@ func Test_SupervisedPool_RemoveWorker(t *testing.T) {
 		assert.NoError(t, p.RemoveWorker(ctx))
 	}
 
+	// should not be error, 1 worker should be in the pool
 	_, err = p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
-	assert.Error(t, err)
+	assert.NoError(t, err)
 
 	err = p.AddWorker()
 	assert.NoError(t, err)
