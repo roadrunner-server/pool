@@ -46,6 +46,7 @@ func Test_NewPool(t *testing.T) {
 	assert.NotNil(t, p)
 
 	r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+	require.NoError(t, err)
 	resp := <-r
 
 	assert.Equal(t, []byte("hello"), resp.Body())
@@ -169,8 +170,9 @@ func Test_StaticPool_RemoveWorker(t *testing.T) {
 		assert.NoError(t, p.RemoveWorker(ctx))
 	}
 
+	// 1 worker should be in the pool
 	_, err = p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
-	assert.Error(t, err)
+	assert.NoError(t, err)
 
 	err = p.AddWorker()
 	assert.NoError(t, err)

@@ -27,10 +27,10 @@ type State struct {
 	StatusStr string `json:"statusStr"`
 }
 
-// WorkerProcessState creates new worker state definition.
+// WorkerProcessState creates a new worker state definition.
 func WorkerProcessState(w *worker.Process) (*State, error) {
 	const op = errors.Op("worker_process_state")
-	p, _ := process.NewProcess(int32(w.Pid()))
+	p, _ := process.NewProcess(int32(w.Pid())) //nolint:gosec
 	i, err := p.MemoryInfo()
 	if err != nil {
 		return nil, errors.E(op, err)

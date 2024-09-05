@@ -172,7 +172,7 @@ func (f *Factory) findRelayWithContext(ctx context.Context, w *worker.Process) (
 			return nil, errors.E(errors.Op("findRelayWithContext"), errors.TimeOut)
 		case <-ticker.C:
 			// check for the process exists
-			_, err := process.NewProcess(int32(w.Pid()))
+			_, err := process.NewProcess(int32(w.Pid())) //nolint:gosec
 			if err != nil {
 				return nil, err
 			}

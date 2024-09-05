@@ -25,7 +25,7 @@ func NewVector() *Vec {
 	vec := &Vec{
 		destroy: 0,
 		reset:   0,
-		workers: make(chan *worker.Process, 1000),
+		workers: make(chan *worker.Process, 500),
 	}
 
 	return vec
@@ -41,7 +41,7 @@ func (v *Vec) Push(w *worker.Process) {
 		// because in that case, workers in the v.workers channel can be TTL-ed and killed
 		// but presenting in the channel
 	default:
-		// channel is full
+		// the channel is full
 		_ = w.Kill()
 	}
 }

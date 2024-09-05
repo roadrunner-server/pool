@@ -531,8 +531,8 @@ func (w *Process) sendFrame(p *payload.Payload) error {
 	buf.Write(p.Body)
 
 	// Context offset
-	fr.WriteOptions(fr.HeaderPtr(), uint32(len(p.Context)))
-	fr.WritePayloadLen(fr.Header(), uint32(buf.Len()))
+	fr.WriteOptions(fr.HeaderPtr(), uint32(len(p.Context))) //nolint:gosec
+	fr.WritePayloadLen(fr.Header(), uint32(buf.Len()))      //nolint:gosec
 	fr.WritePayload(buf.Bytes())
 
 	fr.WriteCRC(fr.Header())

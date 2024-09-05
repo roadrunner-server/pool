@@ -43,11 +43,11 @@ func SendControl(rl relay.Relay, payload any) error {
 		return errors.Errorf("invalid payload: %s", err)
 	}
 
-	fr.WritePayloadLen(fr.Header(), uint32(len(data)))
+	fr.WritePayloadLen(fr.Header(), uint32(len(data))) //nolint:gosec
 	fr.WritePayload(data)
 	fr.WriteCRC(fr.Header())
 
-	// we don't need a copy here, because frame copy the data before send
+	// we don't need a copy here, because frame copies the data before send
 	err = rl.Send(fr)
 	if err != nil {
 		return err

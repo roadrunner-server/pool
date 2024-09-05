@@ -47,8 +47,8 @@ func (sp *Pool) control() {
 	workers := sp.Workers()
 
 	for i := 0; i < len(workers); i++ {
-		// if worker not in the Ready OR working state
-		// skip such worker
+		// if worker not in the Ready OR working state,
+		// skip such a worker
 		switch workers[i].State().CurrentState() {
 		case
 			fsm.StateInactive,
@@ -58,7 +58,7 @@ func (sp *Pool) control() {
 			fsm.StateInvalid,
 			fsm.StateMaxJobsReached:
 
-			// do no touch the bad worker until it pushed back to the stack
+			// do not touch the bad worker until it pushed back to the stack
 			continue
 
 		case
@@ -75,6 +75,7 @@ func (sp *Pool) control() {
 			workers[i].Callback()
 
 			continue
+		default:
 		}
 
 		s, err := process.WorkerProcessState(workers[i])
@@ -87,7 +88,7 @@ func (sp *Pool) control() {
 			/*
 				worker at this point might be in the middle of request execution:
 
-				---> REQ ---> WORKER -----------------> RESP (at this point we should not set the Ready state) ------> | ----> Worker gets between supervisor checks and get killed in the ww.Release
+				---> REQ ---> WORKER -----------------> RESP (at this point we should not set the Ready state) ------> | ----> Worker gets between supervisor checks and gets killed in the ww.Release
 											 ^
 				                           TTL Reached, state - invalid                                                |
 																														-----> Worker Stopped here
@@ -137,8 +138,8 @@ func (sp *Pool) control() {
 			/*
 				Calculate idle time
 				If worker in the StateReady, we read it LastUsed timestamp as UnixNano uint64
-				2. For example maxWorkerIdle is equal to 5sec, then, if (time.Now - LastUsed) > maxWorkerIdle
-				we are guessing that worker overlap idle time and has to be killed
+				2. For example, maxWorkerIdle is equal to 5sec, then, if (time.Now - LastUsed) > maxWorkerIdle
+				we are guessing that the worker overlaps idle time and has to be killed
 			*/
 
 			// 1610530005534416045 lu
@@ -151,17 +152,17 @@ func (sp *Pool) control() {
 				continue
 			}
 
-			// convert last used to unixNano and sub time.now to seconds
-			// negative number, because lu always in the past, except for the `back to the future` :)
-			res := ((int64(lu) - now.UnixNano()) / NsecInSec) * -1
+			// convert last used to unixNano and sub time.now to the number of seconds
+			// negative, because lu always in the past, except for the `back to the future` :)
+			res := ((int64(lu) - now.UnixNano()) / NsecInSec) * -1 //nolint:gosec
 
 			// maxWorkerIdle more than diff between now and last used
-			// for example:
+			// for example,
 			// After exec worker goes to the rest
-			// And resting for the 5 seconds
+			// And resting for the 5 seconds,
 			// IdleTTL is 1 second.
 			// After the control check, res will be 5, idle is 1
-			// 5 - 1 = 4, more than 0, YOU ARE FIRED (removed). Done.
+			// 5-1 = 4, more than 0; YOU ARE FIRED (removed). Done.
 			if int64(sp.cfg.Supervisor.IdleTTL.Seconds())-res <= 0 {
 				/*
 					worker at this point might be in the middle of request execution:
