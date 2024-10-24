@@ -1,0 +1,99 @@
+{
+  "$id": "https://raw.githubusercontent.com/roadrunner-server/pool/refs/heads/master/schema.json",
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "description": "All the valid configuration parameters for the pool plugin for RoadRunner.",
+  "title": "roadrunner-pool",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "debug": {
+      "description": "Pool debug mode. In debug mode, workers will only be created right before RR passes requests to them and will not stand by. This essentially defeats the purpose of having a worker pool and should only be used during development.",
+      "type": "boolean",
+      "default": false
+    },
+    "command": {
+      "type": "string",
+      "description": "Command to use for the pool. If defined, this will override the value in `server.command` for this pool only.",
+      "examples": [
+        "php worker.php"
+      ]
+    },
+    "num_workers": {
+      "description": "The number of worker processes to start. Zero or undefined means the number of logical CPUs",
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "max_jobs": {
+      "description": "The maximum number of executions a worker may perform before it is terminated and a new process is started. Zero or undefined means no limit.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "max_queue_size": {
+      "description": "Maximum size of the internal requests queue. After reaching the limit, all additional requests would be rejected with error. Zero or undefined means no limit.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "allocate_timeout": {
+      "description": "Timeout for worker allocation. Zero or undefined means 60s.",
+      "$ref": "#/$defs/duration",
+      "default": "60s"
+    },
+    "reset_timeout": {
+      "description": "Timeout for the `pool.Reset` operation (./rr reset). Zero or undefined means 60s.",
+      "$ref": "#/$defs/duration",
+      "default": "60s"
+    },
+    "stream_timeout": {
+      "description": "Timeout for stream cancellation. Zero or undefined means 60s.",
+      "$ref": "#/$defs/duration",
+      "default": "60s"
+    },
+    "destroy_timeout": {
+      "description": "The timeout for destroying a worker. If a worker has not stopped after this period, the process will be killed. Zero or undefined means 60s.",
+      "$ref": "#/$defs/duration",
+      "default": "60s"
+    },
+    "supervisor": {
+      "title": "Pool Supervisor",
+      "description": "The pool supervisor is used to control HTTP workers.",
+      "type": "object",
+      "properties": {
+        "watch_tick": {
+          "description": "How often to check the state of the workers. Defaults to 5s.",
+          "$ref": "#/$defs/duration",
+          "default": "5s"
+        },
+        "ttl": {
+          "description": "Maximum time worker is allowed to live (soft limit). Zero means no limit. If a worker exceeds this limit while processing a request, it will be terminated after.",
+          "$ref": "#/$defs/duration",
+          "default": "0s"
+        },
+        "idle_ttl": {
+          "description": "How long worker can spend in idle mode after first processing a request (soft limit). Zero or undefined means no limit.",
+          "$ref": "#/$defs/duration",
+          "default": "0s"
+        },
+        "max_worker_memory": {
+          "description": "The maximum memory consumption allowed by each worker (soft limit). If a worker exceeds this value during an execution, it will be terminated after. Zero or undefined means no limit.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "exec_ttl": {
+          "description": "The maximum lifetime of a job (hard limit). If a job takes longer to process than this value, the worker will be terminated. Zero or undefined means no limit.",
+          "$ref": "#/$defs/duration",
+          "default": "0s"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "duration": {
+      "$ref": "https://raw.githubusercontent.com/roadrunner-server/roadrunner/refs/heads/master/schemas/config/3.0.schema.json#/definitions/Duration"
+    }
+  }
+}
+
