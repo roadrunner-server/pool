@@ -381,7 +381,7 @@ func (w *Process) Exec(ctx context.Context, p *payload.Payload) (*payload.Payloa
 
 	c := w.getCh()
 	// set last used time
-	w.State().SetLastUsed(uint64(time.Now().UnixNano()))
+	w.State().SetLastUsed(uint64(time.Now().UnixNano())) //nolint:gosec
 	w.State().Transition(fsm.StateWorking)
 
 	go func() {

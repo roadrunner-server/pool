@@ -21,6 +21,7 @@ $psr7 = new RoadRunner\Http\PSR7Worker(
 while ($req = $psr7->waitRequest()) {
 	try {
 		$resp = new \Nyholm\Psr7\Response();
+		sleep(10);
 		$resp->getBody()->write("hello world");
 
 		$psr7->respond($resp);

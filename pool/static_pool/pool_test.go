@@ -55,6 +55,68 @@ func Test_NewPool(t *testing.T) {
 	p.Destroy(ctx)
 }
 
+func Test_DynamicPool(t *testing.T) {
+	dynAllCfg := &pool.Config{
+		NumWorkers:      1,
+		AllocateTimeout: time.Second * 5,
+		DestroyTimeout:  time.Second,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  5,
+			IdleTimeout: time.Second * 15,
+			SpawnRate:   2,
+		},
+	}
+
+	ctx := context.Background()
+	p, err := NewPool(
+		ctx,
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+		},
+		pipe.NewPipeFactory(log()),
+		dynAllCfg,
+		log(),
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, p)
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		require.NoError(t, err)
+		select {
+		case resp := <-r:
+			assert.Equal(t, []byte("hello world"), resp.Body())
+			assert.NoError(t, err)
+		case <-time.After(time.Second * 10):
+			assert.Fail(t, "timeout")
+		}
+
+		wg.Done()
+	}()
+	go func() {
+		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		require.NoError(t, err)
+		select {
+		case resp := <-r:
+			assert.Equal(t, []byte("hello world"), resp.Body())
+			assert.NoError(t, err)
+		case <-time.After(time.Second * 10):
+			assert.Fail(t, "timeout")
+		}
+
+		wg.Done()
+	}()
+
+	wg.Wait()
+
+	time.Sleep(time.Second * 20)
+
+	p.Destroy(ctx)
+}
+
 func Test_NewPoolAddRemoveWorkers(t *testing.T) {
 	testCfg2 := &pool.Config{
 		NumWorkers:      1,
@@ -1074,7 +1136,7 @@ func Benchmark_Pool_Echo_Batched(b *testing.B) {
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
 		pipe.NewPipeFactory(log()),
 		&pool.Config{
-			NumWorkers:      uint64(runtime.NumCPU()),
+			NumWorkers:      uint64(runtime.NumCPU()), //nolint:gosec
 			AllocateTimeout: time.Second * 100,
 			DestroyTimeout:  time.Second,
 		},

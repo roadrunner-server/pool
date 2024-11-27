@@ -2,6 +2,7 @@ package pool
 
 import (
 	"runtime"
+	"sync"
 	"time"
 )
 
@@ -32,12 +33,14 @@ type Config struct {
 	StreamTimeout time.Duration `mapstructure:"stream_timeout"`
 	// Supervision config to limit worker and pool memory usage.
 	Supervisor *SupervisorConfig `mapstructure:"supervisor"`
+	// Dynamic allocation config
+	DynamicAllocatorOpts *DynamicAllocationOpts `mapstructure:"dynamic_allocator"`
 }
 
 // InitDefaults enables default config values.
 func (cfg *Config) InitDefaults() {
 	if cfg.NumWorkers == 0 {
-		cfg.NumWorkers = uint64(runtime.NumCPU())
+		cfg.NumWorkers = uint64(runtime.NumCPU()) //nolint:gosec
 	}
 
 	if cfg.AllocateTimeout == 0 {
@@ -56,10 +59,14 @@ func (cfg *Config) InitDefaults() {
 		cfg.ResetTimeout = time.Minute
 	}
 
-	if cfg.Supervisor == nil {
-		return
+	if cfg.Supervisor != nil {
+		cfg.Supervisor.InitDefaults()
 	}
-	cfg.Supervisor.InitDefaults()
+
+	// initialize the dynamic allocator
+	if cfg.DynamicAllocatorOpts != nil {
+		cfg.DynamicAllocatorOpts.InitDefaults()
+	}
 }
 
 type SupervisorConfig struct {
@@ -80,4 +87,67 @@ func (cfg *SupervisorConfig) InitDefaults() {
 	if cfg.WatchTick == 0 {
 		cfg.WatchTick = time.Second * 5
 	}
+}
+
+type DynamicAllocationOpts struct {
+	MaxWorkers  uint64        `mapstructure:"max_workers"`
+	SpawnRate   uint64        `mapstructure:"spawn_rate"`
+	IdleTimeout time.Duration `mapstructure:"idle_timeout"`
+
+	// internal, should be private and moved to the static_pool folder
+	currAllocated  uint64
+	lock           *sync.Mutex
+	ttlTriggerChan chan struct{}
+	ticketer       *time.Ticker
+}
+
+func (d *DynamicAllocationOpts) TriggerTTL() {
+	d.ttlTriggerChan <- struct{}{}
+}
+
+func (d *DynamicAllocationOpts) GetTriggerTTLChan() chan struct{} {
+	return d.ttlTriggerChan
+}
+
+func (d *DynamicAllocationOpts) Lock() {
+	d.lock.Lock()
+}
+
+func (d *DynamicAllocationOpts) Unlock() {
+	d.lock.Unlock()
+}
+
+func (d *DynamicAllocationOpts) CurrAllocated() uint64 {
+	return d.currAllocated
+}
+
+func (d *DynamicAllocationOpts) IncAllocated() {
+	d.currAllocated++
+}
+
+func (d *DynamicAllocationOpts) DecAllocated() {
+	d.currAllocated--
+}
+
+func (d *DynamicAllocationOpts) ResetAllocated() {
+	d.currAllocated = 0
+}
+
+func (d *DynamicAllocationOpts) InitDefaults() {
+	d.lock = &sync.Mutex{}
+
+	if d.MaxWorkers == 0 {
+		d.MaxWorkers = 10
+	}
+
+	if d.SpawnRate == 0 {
+		d.SpawnRate = 1
+	}
+
+	if d.IdleTimeout == 0 || d.IdleTimeout < time.Second {
+		d.IdleTimeout = time.Minute
+	}
+
+	d.ttlTriggerChan = make(chan struct{}, 1)
+	d.currAllocated = 0
 }
