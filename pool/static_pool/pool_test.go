@@ -402,7 +402,6 @@ func Test_StaticPool_QueueSizeLimit(t *testing.T) {
 		WithQueueSize(1),
 	)
 	require.NoError(t, err)
-
 	defer p.Destroy(ctx)
 
 	assert.NotNil(t, p)
@@ -432,8 +431,6 @@ func Test_StaticPool_QueueSizeLimit(t *testing.T) {
 
 	assert.Equal(t, "hello world", res.Payload().String())
 	wg.Wait()
-
-	p.Destroy(ctx)
 }
 
 func Test_StaticPool_Echo(t *testing.T) {

@@ -3,6 +3,7 @@ package pool
 import (
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -98,7 +99,7 @@ type DynamicAllocationOpts struct {
 	currAllocated  uint64
 	lock           *sync.Mutex
 	ttlTriggerChan chan struct{}
-	ticketer       *time.Ticker
+	started        atomic.Pointer[bool]
 }
 
 func (d *DynamicAllocationOpts) TriggerTTL() {
@@ -133,6 +134,18 @@ func (d *DynamicAllocationOpts) ResetAllocated() {
 	d.currAllocated = 0
 }
 
+func (d *DynamicAllocationOpts) IsStarted() bool {
+	return *d.started.Load()
+}
+
+func (d *DynamicAllocationOpts) Start() {
+	d.started.Store(p(true))
+}
+
+func (d *DynamicAllocationOpts) Stop() {
+	d.started.Store(p(false))
+}
+
 func (d *DynamicAllocationOpts) InitDefaults() {
 	d.lock = &sync.Mutex{}
 
@@ -150,4 +163,9 @@ func (d *DynamicAllocationOpts) InitDefaults() {
 
 	d.ttlTriggerChan = make(chan struct{}, 1)
 	d.currAllocated = 0
+	d.started.Store(p(false))
+}
+
+func p[T any](val T) *T {
+	return &val
 }
