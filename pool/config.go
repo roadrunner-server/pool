@@ -2,8 +2,6 @@ package pool
 
 import (
 	"runtime"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -94,78 +92,27 @@ type DynamicAllocationOpts struct {
 	MaxWorkers  uint64        `mapstructure:"max_workers"`
 	SpawnRate   uint64        `mapstructure:"spawn_rate"`
 	IdleTimeout time.Duration `mapstructure:"idle_timeout"`
-
-	// internal, should be private and moved to the static_pool folder
-	currAllocated  uint64
-	lock           *sync.Mutex
-	ttlTriggerChan chan struct{}
-	started        atomic.Pointer[bool]
-}
-
-func (d *DynamicAllocationOpts) TriggerTTL() {
-	d.ttlTriggerChan <- struct{}{}
-}
-
-func (d *DynamicAllocationOpts) GetTriggerTTLChan() chan struct{} {
-	return d.ttlTriggerChan
-}
-
-func (d *DynamicAllocationOpts) Lock() {
-	d.lock.Lock()
-}
-
-func (d *DynamicAllocationOpts) Unlock() {
-	d.lock.Unlock()
-}
-
-func (d *DynamicAllocationOpts) CurrAllocated() uint64 {
-	return d.currAllocated
-}
-
-func (d *DynamicAllocationOpts) IncAllocated() {
-	d.currAllocated++
-}
-
-func (d *DynamicAllocationOpts) DecAllocated() {
-	d.currAllocated--
-}
-
-func (d *DynamicAllocationOpts) ResetAllocated() {
-	d.currAllocated = 0
-}
-
-func (d *DynamicAllocationOpts) IsStarted() bool {
-	return *d.started.Load()
-}
-
-func (d *DynamicAllocationOpts) Start() {
-	d.started.Store(p(true))
-}
-
-func (d *DynamicAllocationOpts) Stop() {
-	d.started.Store(p(false))
 }
 
 func (d *DynamicAllocationOpts) InitDefaults() {
-	d.lock = &sync.Mutex{}
-
 	if d.MaxWorkers == 0 {
 		d.MaxWorkers = 10
 	}
 
+	// limit max workers to 100
+	if d.MaxWorkers > 100 {
+		d.MaxWorkers = 100
+	}
+
 	if d.SpawnRate == 0 {
-		d.SpawnRate = 1
+		d.SpawnRate = 5
+	}
+
+	if d.SpawnRate > 100 {
+		d.SpawnRate = 100
 	}
 
 	if d.IdleTimeout == 0 || d.IdleTimeout < time.Second {
 		d.IdleTimeout = time.Minute
 	}
-
-	d.ttlTriggerChan = make(chan struct{}, 1)
-	d.currAllocated = 0
-	d.started.Store(p(false))
-}
-
-func p[T any](val T) *T {
-	return &val
 }

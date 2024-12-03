@@ -35,6 +35,8 @@ type Pool struct {
 	factory pool.Factory
 	// manages worker states and TTLs
 	ww *workerWatcher.WorkerWatcher
+	// dynamic allocator
+	dynamicAllocator *dynAllocator
 	// allocate new worker
 	allocator func() (*worker.Process, error)
 	// exec queue size
@@ -57,6 +59,11 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 	}
 
 	cfg.InitDefaults()
+
+	// limit the number of workers to 500
+	if cfg.NumWorkers > 500 {
+		return nil, errors.Str("number of workers can't be more than 500")
+	}
 
 	// for debug mode we need to set the number of workers to 0 (no pre-allocated workers) and max jobs to 1
 	if cfg.Debug {
@@ -112,6 +119,10 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 		}
 		// start the supervisor
 		p.start()
+	}
+
+	if p.cfg.DynamicAllocatorOpts != nil {
+		p.dynamicAllocator = newDynAllocator(p.log, p.ww, p.allocator, p.stopCh, &p.mu, p.cfg)
 	}
 
 	return p, nil
@@ -370,10 +381,7 @@ func (sp *Pool) NumDynamic() uint64 {
 		return 0
 	}
 
-	sp.cfg.DynamicAllocatorOpts.Lock()
-	defer sp.cfg.DynamicAllocatorOpts.Unlock()
-
-	return sp.cfg.DynamicAllocatorOpts.CurrAllocated()
+	return *sp.dynamicAllocator.currAllocated.Load()
 }
 
 // Destroy all underlying stack (but let them complete the task).
@@ -428,7 +436,11 @@ func (sp *Pool) takeWorker(ctxGetFree context.Context, op errors.Op) (*worker.Pr
 				return nil, errors.E(op, errors.NoFreeWorkers)
 			}
 
-			return sp.allocateDynamically()
+			// for the dynamic allocator, we can would have many requests waiting at the same time on the lock in the dyn allocator
+			// this will lead to the following case - all previous requests would be able to get the worker, since we're allocating them in the allocateDynamically
+			// however, requests waiting for the lock, won't allocate a new worker and would be failed
+
+			return sp.dynamicAllocator.allocateDynamically()
 		}
 		// else if err not nil - return error
 		return nil, errors.E(op, err)

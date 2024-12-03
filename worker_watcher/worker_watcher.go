@@ -56,38 +56,6 @@ func (ww *WorkerWatcher) Watch(workers []*worker.Process) error {
 	ww.Lock()
 	defer ww.Unlock()
 
-	// if the container is full, return an error
-	if atomic.LoadUint64(&ww.numWorkers) >= maxWorkers {
-		return errors.E(errors.WorkerAllocate, errors.Str("container is full"))
-	}
-
-	// if the number of workers to add is greater than the maximum number of workers
-	// we can add only the number of workers that can be added w/o exceeding the limit
-	if atomic.LoadUint64(&ww.numWorkers)+uint64(len(workers)) > maxWorkers {
-		// calculate the number of workers that can be added
-		// for example, if we have 100 [0..99] workers to add, but the container has 450 workers,
-		// we can add only 50 workers: 500 - 450 = 50 [0..49]
-		maxAllocated := maxWorkers - atomic.LoadUint64(&ww.numWorkers)
-
-		// workers[:maxAllocated] - up to 50 including 50 (in our example)
-		toWatch := workers[:maxAllocated]
-		// toAllocate - will contain [0, 1, 2, ..., 50] + [50..99] (100 in total)
-		for i := 0; i < len(toWatch); i++ {
-			ww.container.Push(toWatch[i])
-			// add worker to watch slice
-			ww.workers[toWatch[i].Pid()] = toWatch[i]
-			ww.addToWatch(toWatch[i])
-		}
-
-		// the rest of the workers from the workers slice should be stopped
-		toStop := workers[maxAllocated:]
-		for i := 0; i < len(toStop); i++ {
-			_ = toStop[i].Stop()
-		}
-
-		return nil
-	}
-
 	// else we can add all workers
 	for i := 0; i < len(workers); i++ {
 		ww.container.Push(workers[i])
@@ -101,7 +69,7 @@ func (ww *WorkerWatcher) Watch(workers []*worker.Process) error {
 
 func (ww *WorkerWatcher) AddWorker() error {
 	if atomic.LoadUint64(&ww.numWorkers) >= maxWorkers {
-		return errors.E(errors.WorkerAllocate, errors.Str("container is full"))
+		return errors.E(errors.WorkerAllocate, errors.Str("container is full, maximum number of workers reached"))
 	}
 
 	err := ww.Allocate()
