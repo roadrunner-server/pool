@@ -128,6 +128,13 @@ allocate:
 			return nil, errors.E(op, err)
 		}
 
+		// reset ttl after every alloated worker
+		select {
+		case da.ttlTriggerChan <- struct{}{}:
+		case <-time.After(time.Minute):
+			return nil, errors.E(op, stderr.New("failed to reset the TTL listener"))
+		}
+
 		// increase number of additionally allocated options
 		_ = da.currAllocated.Swap(p(*da.currAllocated.Load() + 1))
 
