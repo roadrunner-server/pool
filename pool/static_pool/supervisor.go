@@ -16,7 +16,7 @@ const (
 	NsecInSec int64 = 1000000000
 )
 
-func (sp *Pool) Start() {
+func (sp *Pool) start() {
 	go func() {
 		watchTout := time.NewTicker(sp.cfg.Supervisor.WatchTick)
 		defer watchTout.Stop()
@@ -33,10 +33,6 @@ func (sp *Pool) Start() {
 			}
 		}
 	}()
-}
-
-func (sp *Pool) Stop() {
-	sp.stopCh <- struct{}{}
 }
 
 func (sp *Pool) control() {

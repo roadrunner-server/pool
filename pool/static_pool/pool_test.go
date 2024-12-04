@@ -55,6 +55,154 @@ func Test_NewPool(t *testing.T) {
 	p.Destroy(ctx)
 }
 
+func Test_DynamicPool(t *testing.T) {
+	dynAllCfg := &pool.Config{
+		NumWorkers:      1,
+		AllocateTimeout: time.Second * 5,
+		DestroyTimeout:  time.Second,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  5,
+			IdleTimeout: time.Second * 15,
+			SpawnRate:   2,
+		},
+	}
+
+	ctx := context.Background()
+	p, err := NewPool(
+		ctx,
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+		},
+		pipe.NewPipeFactory(log()),
+		dynAllCfg,
+		log(),
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, p)
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		require.NoError(t, err)
+		select {
+		case resp := <-r:
+			assert.Equal(t, []byte("hello world"), resp.Body())
+			assert.NoError(t, err)
+		case <-time.After(time.Second * 10):
+			assert.Fail(t, "timeout")
+		}
+
+		wg.Done()
+	}()
+	go func() {
+		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		require.NoError(t, err)
+		select {
+		case resp := <-r:
+			assert.Equal(t, []byte("hello world"), resp.Body())
+			assert.NoError(t, err)
+		case <-time.After(time.Second * 10):
+			assert.Fail(t, "timeout")
+		}
+
+		wg.Done()
+	}()
+
+	wg.Wait()
+
+	time.Sleep(time.Second * 20)
+
+	p.Destroy(ctx)
+}
+
+func Test_MaxWorkers(t *testing.T) {
+	dynAllCfg := &pool.Config{
+		NumWorkers:      501,
+		AllocateTimeout: time.Second * 5,
+		DestroyTimeout:  time.Second,
+	}
+
+	ctx := context.Background()
+	p, err := NewPool(
+		ctx,
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+		},
+		pipe.NewPipeFactory(log()),
+		dynAllCfg,
+		log(),
+	)
+	assert.Error(t, err)
+	assert.Nil(t, p)
+}
+
+func Test_DynamicPool_500W(t *testing.T) {
+	dynAllCfg := &pool.Config{
+		NumWorkers:      1,
+		AllocateTimeout: time.Second * 5,
+		DestroyTimeout:  time.Second,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  100,
+			IdleTimeout: time.Second * 15,
+			// should be corrected to 100 by RR
+			SpawnRate: 101,
+		},
+	}
+
+	ctx := context.Background()
+	p, err := NewPool(
+		ctx,
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+		},
+		pipe.NewPipeFactory(log()),
+		dynAllCfg,
+		log(),
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, p)
+	require.Len(t, p.Workers(), 1)
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		assert.NoError(t, err)
+		select {
+		case resp := <-r:
+			assert.Equal(t, []byte("hello world"), resp.Body())
+			assert.NoError(t, err)
+		case <-time.After(time.Second * 10):
+			assert.Fail(t, "timeout")
+		}
+
+		wg.Done()
+	}()
+
+	go func() {
+		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		assert.NoError(t, err)
+		select {
+		case resp := <-r:
+			assert.Equal(t, []byte("hello world"), resp.Body())
+			assert.NoError(t, err)
+		case <-time.After(time.Second * 10):
+			assert.Fail(t, "timeout")
+		}
+
+		wg.Done()
+	}()
+
+	wg.Wait()
+
+	require.Len(t, p.Workers(), 101)
+	time.Sleep(time.Second * 20)
+	p.Destroy(ctx)
+}
+
 func Test_NewPoolAddRemoveWorkers(t *testing.T) {
 	testCfg2 := &pool.Config{
 		NumWorkers:      1,
@@ -340,7 +488,6 @@ func Test_StaticPool_QueueSizeLimit(t *testing.T) {
 		WithQueueSize(1),
 	)
 	require.NoError(t, err)
-
 	defer p.Destroy(ctx)
 
 	assert.NotNil(t, p)
@@ -370,8 +517,6 @@ func Test_StaticPool_QueueSizeLimit(t *testing.T) {
 
 	assert.Equal(t, "hello world", res.Payload().String())
 	wg.Wait()
-
-	p.Destroy(ctx)
 }
 
 func Test_StaticPool_Echo(t *testing.T) {
@@ -1074,7 +1219,7 @@ func Benchmark_Pool_Echo_Batched(b *testing.B) {
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
 		pipe.NewPipeFactory(log()),
 		&pool.Config{
-			NumWorkers:      uint64(runtime.NumCPU()),
+			NumWorkers:      uint64(runtime.NumCPU()), //nolint:gosec
 			AllocateTimeout: time.Second * 100,
 			DestroyTimeout:  time.Second,
 		},

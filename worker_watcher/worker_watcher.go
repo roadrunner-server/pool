@@ -15,6 +15,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const maxWorkers = 500
+
 // Allocator is responsible for worker allocation in the pool
 type Allocator func() (*worker.Process, error)
 
@@ -40,9 +42,8 @@ func NewSyncWorkerWatcher(allocator Allocator, log *zap.Logger, numWorkers uint6
 	eb, _ := events.NewEventBus()
 	return &WorkerWatcher{
 		container: channel.NewVector(),
-
-		log:      log,
-		eventBus: eb,
+		log:       log,
+		eventBus:  eb,
 		// pass a ptr to the number of workers to avoid blocking in the TTL loop
 		numWorkers:      numWorkers,
 		allocateTimeout: allocateTimeout,
@@ -54,17 +55,23 @@ func NewSyncWorkerWatcher(allocator Allocator, log *zap.Logger, numWorkers uint6
 func (ww *WorkerWatcher) Watch(workers []*worker.Process) error {
 	ww.Lock()
 	defer ww.Unlock()
+
+	// else we can add all workers
 	for i := 0; i < len(workers); i++ {
-		ii := i
-		ww.container.Push(workers[ii])
+		ww.container.Push(workers[i])
 		// add worker to watch slice
-		ww.workers[workers[ii].Pid()] = workers[ii]
-		ww.addToWatch(workers[ii])
+		ww.workers[workers[i].Pid()] = workers[i]
+		ww.addToWatch(workers[i])
 	}
+
 	return nil
 }
 
 func (ww *WorkerWatcher) AddWorker() error {
+	if atomic.LoadUint64(&ww.numWorkers) >= maxWorkers {
+		return errors.E(errors.WorkerAllocate, errors.Str("container is full, maximum number of workers reached"))
+	}
+
 	err := ww.Allocate()
 	if err != nil {
 		return err
@@ -240,7 +247,7 @@ func (ww *WorkerWatcher) Reset(ctx context.Context) uint64 {
 			ww.RLock()
 
 			// that might be one of the workers is working. To proceed, all workers should be inside a channel
-			if atomic.LoadUint64(&ww.numWorkers) != uint64(ww.container.Len()) {
+			if atomic.LoadUint64(&ww.numWorkers) != uint64(ww.container.Len()) { //nolint:gosec
 				ww.RUnlock()
 				continue
 			}
@@ -322,7 +329,7 @@ func (ww *WorkerWatcher) Destroy(ctx context.Context) {
 		case <-tt.C:
 			ww.RLock()
 			// that might be one of the workers is working
-			if atomic.LoadUint64(&ww.numWorkers) != uint64(ww.container.Len()) {
+			if atomic.LoadUint64(&ww.numWorkers) != uint64(ww.container.Len()) { //nolint:gosec
 				ww.RUnlock()
 				continue
 			}

@@ -35,6 +35,8 @@ type Pool struct {
 	factory pool.Factory
 	// manages worker states and TTLs
 	ww *workerWatcher.WorkerWatcher
+	// dynamic allocator
+	dynamicAllocator *dynAllocator
 	// allocate new worker
 	allocator func() (*worker.Process, error)
 	// exec queue size
@@ -58,6 +60,11 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 
 	cfg.InitDefaults()
 
+	// limit the number of workers to 500
+	if cfg.NumWorkers > 500 {
+		return nil, errors.Str("number of workers can't be more than 500")
+	}
+
 	// for debug mode we need to set the number of workers to 0 (no pre-allocated workers) and max jobs to 1
 	if cfg.Debug {
 		cfg.NumWorkers = 0
@@ -71,6 +78,7 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 		factory: factory,
 		log:     log,
 		queue:   0,
+		stopCh:  make(chan struct{}),
 	}
 
 	// apply options
@@ -110,7 +118,11 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 			p.supervisedExec = true
 		}
 		// start the supervisor
-		p.Start()
+		p.start()
+	}
+
+	if p.cfg.DynamicAllocatorOpts != nil {
+		p.dynamicAllocator = newDynAllocator(p.log, p.ww, p.allocator, p.stopCh, &p.mu, p.cfg)
 	}
 
 	return p, nil
@@ -364,6 +376,14 @@ func (sp *Pool) QueueSize() uint64 {
 	return atomic.LoadUint64(&sp.queue)
 }
 
+func (sp *Pool) NumDynamic() uint64 {
+	if sp.cfg.DynamicAllocatorOpts == nil {
+		return 0
+	}
+
+	return *sp.dynamicAllocator.currAllocated.Load()
+}
+
 // Destroy all underlying stack (but let them complete the task).
 func (sp *Pool) Destroy(ctx context.Context) {
 	sp.log.Info("destroy signal received", zap.Duration("timeout", sp.cfg.DestroyTimeout))
@@ -375,6 +395,7 @@ func (sp *Pool) Destroy(ctx context.Context) {
 	}
 	sp.ww.Destroy(ctx)
 	atomic.StoreUint64(&sp.queue, 0)
+	close(sp.stopCh)
 }
 
 func (sp *Pool) Reset(ctx context.Context) error {
@@ -409,7 +430,17 @@ func (sp *Pool) takeWorker(ctxGetFree context.Context, op errors.Op) (*worker.Pr
 				zap.String("internal_event_name", events.EventNoFreeWorkers.String()),
 				zap.Error(err),
 			)
-			return nil, errors.E(op, err)
+
+			// if we don't have dynamic allocator or in debug mode, we can't allocate a new worker
+			if sp.cfg.DynamicAllocatorOpts == nil || sp.cfg.Debug {
+				return nil, errors.E(op, errors.NoFreeWorkers)
+			}
+
+			// for the dynamic allocator, we can would have many requests waiting at the same time on the lock in the dyn allocator
+			// this will lead to the following case - all previous requests would be able to get the worker, since we're allocating them in the allocateDynamically
+			// however, requests waiting for the lock, won't allocate a new worker and would be failed
+
+			return sp.dynamicAllocator.allocateDynamically()
 		}
 		// else if err not nil - return error
 		return nil, errors.E(op, err)

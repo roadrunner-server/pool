@@ -25,7 +25,7 @@ func NewVector() *Vec {
 	vec := &Vec{
 		destroy: 0,
 		reset:   0,
-		workers: make(chan *worker.Process, 500),
+		workers: make(chan *worker.Process, 600),
 	}
 
 	return vec

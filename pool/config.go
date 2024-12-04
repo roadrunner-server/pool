@@ -32,12 +32,14 @@ type Config struct {
 	StreamTimeout time.Duration `mapstructure:"stream_timeout"`
 	// Supervision config to limit worker and pool memory usage.
 	Supervisor *SupervisorConfig `mapstructure:"supervisor"`
+	// Dynamic allocation config
+	DynamicAllocatorOpts *DynamicAllocationOpts `mapstructure:"dynamic_allocator"`
 }
 
 // InitDefaults enables default config values.
 func (cfg *Config) InitDefaults() {
 	if cfg.NumWorkers == 0 {
-		cfg.NumWorkers = uint64(runtime.NumCPU())
+		cfg.NumWorkers = uint64(runtime.NumCPU()) //nolint:gosec
 	}
 
 	if cfg.AllocateTimeout == 0 {
@@ -56,10 +58,14 @@ func (cfg *Config) InitDefaults() {
 		cfg.ResetTimeout = time.Minute
 	}
 
-	if cfg.Supervisor == nil {
-		return
+	if cfg.Supervisor != nil {
+		cfg.Supervisor.InitDefaults()
 	}
-	cfg.Supervisor.InitDefaults()
+
+	// initialize the dynamic allocator
+	if cfg.DynamicAllocatorOpts != nil {
+		cfg.DynamicAllocatorOpts.InitDefaults()
+	}
 }
 
 type SupervisorConfig struct {
@@ -79,5 +85,34 @@ type SupervisorConfig struct {
 func (cfg *SupervisorConfig) InitDefaults() {
 	if cfg.WatchTick == 0 {
 		cfg.WatchTick = time.Second * 5
+	}
+}
+
+type DynamicAllocationOpts struct {
+	MaxWorkers  uint64        `mapstructure:"max_workers"`
+	SpawnRate   uint64        `mapstructure:"spawn_rate"`
+	IdleTimeout time.Duration `mapstructure:"idle_timeout"`
+}
+
+func (d *DynamicAllocationOpts) InitDefaults() {
+	if d.MaxWorkers == 0 {
+		d.MaxWorkers = 10
+	}
+
+	// limit max workers to 100
+	if d.MaxWorkers > 100 {
+		d.MaxWorkers = 100
+	}
+
+	if d.SpawnRate == 0 {
+		d.SpawnRate = 5
+	}
+
+	if d.SpawnRate > 100 {
+		d.SpawnRate = 100
+	}
+
+	if d.IdleTimeout == 0 || d.IdleTimeout < time.Second {
+		d.IdleTimeout = time.Minute
 	}
 }
