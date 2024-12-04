@@ -67,11 +67,17 @@ func (da *dynAllocator) allocateDynamically() (*worker.Process, error) {
 	da.mu.Lock()
 	defer da.mu.Unlock()
 
+	da.log.Debug("No free workers, trying to allocate dynamically",
+		zap.Duration("idle_timeout", da.idleTimeout),
+		zap.Uint64("max_workers", da.maxWorkers),
+		zap.Uint64("spawn_rate", da.spawnRate))
+
 	if !*da.started.Load() {
 		// start the dynamic allocator listener
 		da.dynamicTTLListener()
 		da.started.Store(p(true))
 	} else {
+		da.log.Debug("dynamic allocator listener already started, trying to allocate worker immediately with 2s timeout")
 		// if the listener was started we can try to get the worker with a very short timeout, which was probably allocated by the previous NoFreeWorkers error
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 		w, err := da.ww.Take(ctx)
@@ -90,40 +96,21 @@ func (da *dynAllocator) allocateDynamically() (*worker.Process, error) {
 allocate:
 	// otherwise, we can try to allocate a new batch of workers
 
-	// reset the TTL listener
-	select {
-	case da.ttlTriggerChan <- struct{}{}:
-	case <-time.After(time.Minute):
-		return nil, errors.E(op, stderr.New("failed to reset the TTL listener"))
-	}
-
 	// if we already allocated max workers, we can't allocate more
 	if *da.currAllocated.Load() >= da.maxWorkers {
 		// can't allocate more
 		return nil, errors.E(op, stderr.New("can't allocate more workers, increase max_workers option (max_workers limit is 100)"))
 	}
 
-	// if we have dynamic allocator, we can try to allocate new worker
-	// this worker should not be released here, but instead will be released in the Exec function
-	err := da.ww.AddWorker()
-	if err != nil {
-		da.log.Error("failed to allocate dynamic worker", zap.Error(err))
-		return nil, errors.E(op, err)
-	}
-
-	// increase number of additionally allocated options
-	_ = da.currAllocated.Swap(p(*da.currAllocated.Load() + 1))
-
-	da.log.Debug("allocated additional worker", zap.Uint64("currently additionally allocated", *da.currAllocated.Load()))
-
 	// we starting from the 1 because we already allocated one worker which would be released in the Exec function
-	for i := uint64(1); i <= da.spawnRate; i++ {
+	// i < da.spawnRate - we can't allocate more workers than the spawn rate
+	for i := uint64(0); i < da.spawnRate; i++ {
 		// spawn as much workers as user specified in the spawn rate configuration, but not more than max workers
 		if *da.currAllocated.Load() >= da.maxWorkers {
 			break
 		}
 
-		err = da.ww.AddWorker()
+		err := da.ww.AddWorker()
 		if err != nil {
 			return nil, errors.E(op, err)
 		}
@@ -137,7 +124,6 @@ allocate:
 
 		// increase number of additionally allocated options
 		_ = da.currAllocated.Swap(p(*da.currAllocated.Load() + 1))
-
 		da.log.Debug("allocated additional worker", zap.Uint64("currently additionally allocated", *da.currAllocated.Load()))
 	}
 
@@ -173,7 +159,8 @@ func (da *dynAllocator) dynamicTTLListener() {
 					goto exit
 				}
 
-				for i := *da.currAllocated.Load(); i > 0; i-- {
+				alloc := *da.currAllocated.Load()
+				for i := uint64(0); i < alloc; i++ {
 					// take the worker from the stack, inifinite timeout
 					// we should not block here forever
 					err := da.ww.RemoveWorker(context.Background())
@@ -187,6 +174,7 @@ func (da *dynAllocator) dynamicTTLListener() {
 
 					// decrease number of additionally allocated options
 					_ = da.currAllocated.Swap(p(*da.currAllocated.Load() - 1))
+					da.log.Debug("deallocated additional worker", zap.Uint64("currently additionally allocated", *da.currAllocated.Load()))
 				}
 
 				if *da.currAllocated.Load() != 0 {
@@ -200,11 +188,13 @@ func (da *dynAllocator) dynamicTTLListener() {
 
 				// when this channel is triggered, we should extend the TTL of all dynamically allocated workers
 			case <-da.ttlTriggerChan:
+				da.log.Debug("TTL trigger received, extending TTL of all dynamically allocated workers")
 				triggerTTL.Reset(da.idleTimeout)
 			}
 		}
 	exit:
 		da.started.Store(p(false))
+		da.log.Debug("dynamic allocator listener exited, all dynamically allocated workers deallocated")
 	}()
 }
 
