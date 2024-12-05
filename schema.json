@@ -1,99 +1,119 @@
 {
-  "$id": "https://raw.githubusercontent.com/roadrunner-server/pool/refs/heads/master/schema.json",
-  "$schema": "https://json-schema.org/draft/2019-09/schema",
-  "description": "All the valid configuration parameters for the pool plugin for RoadRunner.",
-  "title": "roadrunner-pool",
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "debug": {
-      "description": "In debug mode, workers are created immediately before RR passes jobs to them, exiting once the job completes. This defeats the purpose of a worker pool and should only be used during development.",
-      "type": "boolean",
-      "default": false
-    },
-    "command": {
-      "type": "string",
-      "description": "The command to use for the pool. If defined, this will override the value in `server.command` for this pool only.",
-      "examples": [
-        "php worker.php"
-      ]
-    },
-    "num_workers": {
-      "description": "The number of worker processes to start. Zero or undefined defaults to the number of logical CPUs.",
-      "type": "integer",
-      "minimum": 0,
-      "default": 0
-    },
-    "max_jobs": {
-      "description": "The maximum number of executions a worker may perform before it is terminated and a new process is started. Zero or undefined means no limit.",
-      "type": "integer",
-      "minimum": 0,
-      "default": 0
-    },
-    "max_queue_size": {
-      "description": "The maximum size of the internal job queue. This is the limit of pending, incoming jobs that await worker allocation. After the limit is reached, all additional jobs will be rejected with an error. Zero or undefined means no limit.",
-      "type": "integer",
-      "minimum": 0,
-      "default": 0
-    },
-    "allocate_timeout": {
-      "description": "The maximum duration an incoming job is allowed to wait for a worker. Zero or undefined defaults to 60s.",
-      "$ref": "#/$defs/duration",
-      "default": "60s"
-    },
-    "reset_timeout": {
-      "description": "The maximum duration to wait for the `pool.Reset` operation (`./rr reset`) to complete. Zero or undefined defaults to 60s.",
-      "$ref": "#/$defs/duration",
-      "default": "60s"
-    },
-    "stream_timeout": {
-      "description": "The maximum duration to wait for stream cancellation. Zero or undefined defaults to 60s.",
-      "$ref": "#/$defs/duration",
-      "default": "60s"
-    },
-    "destroy_timeout": {
-      "description": "The maximum duration to wait for worker termination/deallocation. If a worker has not stopped after this period, the process will be killed. Zero or undefined defaults to 60s.",
-      "$ref": "#/$defs/duration",
-      "default": "60s"
-    },
-    "supervisor": {
-      "title": "Pool Supervisor",
-      "description": "The pool supervisor is used to control workers. If not defined, the pool has no supervision.",
-      "type": "object",
-      "properties": {
-        "watch_tick": {
-          "description": "Duration between worker state checks. Defaults to 5s.",
-          "$ref": "#/$defs/duration",
-          "default": "5s"
-        },
-        "ttl": {
-          "description": "The maximum duration a worker is allowed to live (soft limit). If a worker exceeds this limit while processing a job, it will be terminated afterward. Zero or undefined means no limit.",
-          "$ref": "#/$defs/duration",
-          "default": "0s"
-        },
-        "idle_ttl": {
-          "description": "The maximum duration a worker may spend in idle mode after first processing a job (soft limit). If a worker exceeds this value during execution, it will be terminated afterward. Zero or undefined means no limit.",
-          "$ref": "#/$defs/duration",
-          "default": "0s"
-        },
-        "max_worker_memory": {
-          "description": "The maximum memory allocation allowed for a worker (soft limit) in MB. If a worker exceeds this value during execution, it will be terminated afterward. This should generally be set to a value lower than your PHP memory_limit, if one is specified. Zero or undefined means no limit.",
-          "type": "integer",
-          "minimum": 0,
-          "default": 0
-        },
-        "exec_ttl": {
-          "description": "The maximum duration any job (hard limit) is allowed to take. If a job exceeds this time limit, the worker processing it will be terminated. Zero or undefined means no limit.",
-          "$ref": "#/$defs/duration",
-          "default": "0s"
-        }
-      }
-    }
-  },
-  "$defs": {
-    "duration": {
-      "$ref": "https://raw.githubusercontent.com/roadrunner-server/roadrunner/refs/heads/master/schemas/config/3.0.schema.json#/definitions/Duration"
-    }
-  }
+	"$id": "https://raw.githubusercontent.com/roadrunner-server/pool/refs/heads/master/schema.json",
+	"$schema": "https://json-schema.org/draft/2019-09/schema",
+	"description": "All the valid configuration parameters for the pool plugin for RoadRunner.",
+	"title": "roadrunner-pool",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"debug": {
+			"description": "In debug mode, workers are created immediately before RR passes jobs to them, exiting once the job completes. This defeats the purpose of a worker pool and should only be used during development.",
+			"type": "boolean",
+			"default": false
+		},
+		"command": {
+			"type": "string",
+			"description": "The command to use for the pool. If defined, this will override the value in `server.command` for this pool only.",
+			"examples": [
+				"php worker.php"
+			]
+		},
+		"num_workers": {
+			"description": "The number of worker processes to start. Zero or undefined defaults to the number of logical CPUs.",
+			"type": "integer",
+			"minimum": 0,
+			"default": 0
+		},
+		"max_jobs": {
+			"description": "The maximum number of executions a worker may perform before it is terminated and a new process is started. Zero or undefined means no limit.",
+			"type": "integer",
+			"minimum": 0,
+			"default": 0
+		},
+		"max_queue_size": {
+			"description": "The maximum size of the internal job queue. This is the limit of pending, incoming jobs that await worker allocation. After the limit is reached, all additional jobs will be rejected with an error. Zero or undefined means no limit.",
+			"type": "integer",
+			"minimum": 0,
+			"default": 0
+		},
+		"allocate_timeout": {
+			"description": "The maximum duration an incoming job is allowed to wait for a worker. Zero or undefined defaults to 60s.",
+			"$ref": "#/$defs/duration",
+			"default": "60s"
+		},
+		"reset_timeout": {
+			"description": "The maximum duration to wait for the `pool.Reset` operation (`./rr reset`) to complete. Zero or undefined defaults to 60s.",
+			"$ref": "#/$defs/duration",
+			"default": "60s"
+		},
+		"stream_timeout": {
+			"description": "The maximum duration to wait for stream cancellation. Zero or undefined defaults to 60s.",
+			"$ref": "#/$defs/duration",
+			"default": "60s"
+		},
+		"destroy_timeout": {
+			"description": "The maximum duration to wait for worker termination/deallocation. If a worker has not stopped after this period, the process will be killed. Zero or undefined defaults to 60s.",
+			"$ref": "#/$defs/duration",
+			"default": "60s"
+		},
+		"dynamic_allocator": {
+			"title": "Dynamic workers allocator",
+			"description": "Configuration options to setup auto workers allocator.",
+			"type": "object",
+			"properties": {
+				"max_workers": {
+					"description": "Maximum number of workers which is allowed to allocate (no more than 100).",
+					"$ref": "#/$defs/duration",
+					"default": "10"
+				},
+				"spawn_rate": {
+					"description": "The number of workers that can be spawned per NoFreeWorkers error (but up to `max_workers`).",
+					"default": "5"
+				},
+				"idle_timeout": {
+					"description": "The time after which dynamically allocated workers are considered not needed and would be deallocated.",
+					"$ref": "#/$defs/duration",
+					"default": "1m"
+				}
+			}
+		},
+		"supervisor": {
+			"title": "Pool Supervisor",
+			"description": "The pool supervisor is used to control workers. If not defined, the pool has no supervision.",
+			"type": "object",
+			"properties": {
+				"watch_tick": {
+					"description": "Duration between worker state checks. Defaults to 5s.",
+					"$ref": "#/$defs/duration",
+					"default": "5s"
+				},
+				"ttl": {
+					"description": "The maximum duration a worker is allowed to live (soft limit). If a worker exceeds this limit while processing a job, it will be terminated afterward. Zero or undefined means no limit.",
+					"$ref": "#/$defs/duration",
+					"default": "0s"
+				},
+				"idle_ttl": {
+					"description": "The maximum duration a worker may spend in idle mode after first processing a job (soft limit). If a worker exceeds this value during execution, it will be terminated afterward. Zero or undefined means no limit.",
+					"$ref": "#/$defs/duration",
+					"default": "0s"
+				},
+				"max_worker_memory": {
+					"description": "The maximum memory allocation allowed for a worker (soft limit) in MB. If a worker exceeds this value during execution, it will be terminated afterward. This should generally be set to a value lower than your PHP memory_limit, if one is specified. Zero or undefined means no limit.",
+					"type": "integer",
+					"minimum": 0,
+					"default": 0
+				},
+				"exec_ttl": {
+					"description": "The maximum duration any job (hard limit) is allowed to take. If a job exceeds this time limit, the worker processing it will be terminated. Zero or undefined means no limit.",
+					"$ref": "#/$defs/duration",
+					"default": "0s"
+				}
+			}
+		}
+	},
+	"$defs": {
+		"duration": {
+			"$ref": "https://raw.githubusercontent.com/roadrunner-server/roadrunner/refs/heads/master/schemas/config/3.0.schema.json#/definitions/Duration"
+		}
+	}
 }
-
