@@ -63,11 +63,12 @@
 			"properties": {
 				"max_workers": {
 					"description": "Maximum number of workers which is allowed to allocate (no more than 100).",
-					"$ref": "#/$defs/duration",
+					"type": "integer",
 					"default": "10"
 				},
 				"spawn_rate": {
 					"description": "The number of workers that can be spawned per NoFreeWorkers error (but up to `max_workers`).",
+					"type": "integer",
 					"default": "5"
 				},
 				"idle_timeout": {
