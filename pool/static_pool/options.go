@@ -17,3 +17,9 @@ func WithQueueSize(l uint64) Options {
 		p.maxQueueSize = l
 	}
 }
+
+func WithNumWorkers(l uint64) Options {
+	return func(p *Pool) {
+		p.cfg.NumWorkers = l
+	}
+}
