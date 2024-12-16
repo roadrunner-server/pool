@@ -18,8 +18,8 @@ func WithQueueSize(l uint64) Options {
 	}
 }
 
-func WithDisabledWorkers() Options {
+func WithNumWorkers(l uint64) Options {
 	return func(p *Pool) {
-		p.cfg.NumWorkers = 0
+		p.cfg.NumWorkers = l
 	}
 }
