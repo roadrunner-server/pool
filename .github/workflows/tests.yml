@@ -52,5 +52,5 @@ jobs:
 
       - uses: codecov/codecov-action@v5 # Docs: <https://github.com/codecov/codecov-action>
         with:
-          file: ./coverage-ci/summary.txt
+          files: ./coverage-ci/summary.txt
           fail_ci_if_error: false
