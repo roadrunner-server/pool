@@ -421,7 +421,7 @@ func Test_NewPoolAddRemoveWorkers(t *testing.T) {
 	assert.Equal(t, []byte("hello"), resp.Body())
 	assert.NoError(t, err)
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		err = p.AddWorker()
 		assert.NoError(t, err)
 	}
@@ -508,7 +508,7 @@ func Test_StaticPool_RemoveWorker(t *testing.T) {
 	assert.NoError(t, err)
 
 	wrks := p.Workers()
-	for i := 0; i < len(wrks); i++ {
+	for range wrks {
 		assert.NoError(t, p.RemoveWorker(ctx))
 	}
 
@@ -552,7 +552,7 @@ func Test_Pool_Reallocate(t *testing.T) {
 	require.NoError(t, os.Rename("../../tests/client.php", "../../tests/client.bak"))
 
 	go func() {
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			time.Sleep(time.Millisecond * 100)
 			_, errResp := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 			require.NoError(t, errResp)
@@ -605,7 +605,7 @@ func Test_NewPoolReset(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			time.Sleep(time.Millisecond * 10)
 			pldG, errG := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 			require.NoError(t, errG)
@@ -940,7 +940,7 @@ func Test_StaticPool_Replace_Worker(t *testing.T) {
 	require.Equal(t, lastPID, string(res.Body()))
 	require.NoError(t, err)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		re, err = p.Exec(ctx, &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
 		require.NoError(t, err)
 
@@ -1030,7 +1030,7 @@ func Test_StaticPool_Debug_Worker(t *testing.T) {
 
 	assert.Len(t, p.Workers(), 0)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		assert.Len(t, p.Workers(), 0)
 		re, err = p.Exec(ctx, &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
 
@@ -1251,7 +1251,7 @@ func Test_StaticPool_Stop_Worker(t *testing.T) {
 
 	assert.Equal(t, lastPID, string(res.Body()))
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		re, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
 
 		res := <-re
@@ -1286,7 +1286,7 @@ func Test_StaticPool_QueueSize(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			_, _ = p.Exec(ctx, &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
 		}()
@@ -1394,10 +1394,9 @@ func Benchmark_Pool_Echo(b *testing.B) {
 		Body:    bd,
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
 	sc := make(chan struct{})
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		_, err = p.Exec(ctx, pld, sc)
 		assert.NoError(b, err)
 	}
@@ -1430,12 +1429,11 @@ func Benchmark_Pool_Echo_Batched(b *testing.B) {
 		Body:    bd,
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
 	var wg sync.WaitGroup
 	sc := make(chan struct{})
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -1466,11 +1464,11 @@ func Benchmark_Pool_Echo_Replaced(b *testing.B) {
 	)
 	assert.NoError(b, err)
 	defer p.Destroy(ctx)
-	b.ResetTimer()
+
 	b.ReportAllocs()
 
 	sc := make(chan struct{})
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		if _, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello")}, sc); err != nil {
 			b.Fail()
 			l.Println(err)
@@ -1484,10 +1482,10 @@ func BenchmarkToStringUnsafe(b *testing.B) {
 	testPayload := []byte(
 		"falsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtoj",
 	)
-	b.ResetTimer()
+
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		res := unsafe.String(unsafe.SliceData(testPayload), len(testPayload))
 		_ = res
 	}
@@ -1500,10 +1498,9 @@ func BenchmarkToStringSafe(b *testing.B) {
 		"falsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtojfalsflasjlifjwpoihejfoiwejow{}{}{}{}jelfjasjfhwaopiehjtopwhtgohrgouahsgkljasdlfjasl;fjals;jdflkndgouwhetopwqhjtoj",
 	)
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		res := toStringNotFun(testPayload)
 		_ = res
 	}

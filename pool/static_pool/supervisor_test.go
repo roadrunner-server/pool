@@ -45,7 +45,7 @@ func Test_SupervisedPool_Exec(t *testing.T) {
 
 	pidBefore := p.Workers()[0].Pid()
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		time.Sleep(time.Second)
 		_, err = p.Exec(ctx, &payload.Payload{
 			Context: []byte(""),
@@ -79,7 +79,7 @@ func Test_SupervisedPool_AddRemoveWorkers(t *testing.T) {
 
 	pidBefore := p.Workers()[0].Pid()
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		time.Sleep(time.Second)
 		_, err = p.Exec(ctx, &payload.Payload{
 			Context: []byte(""),
@@ -170,7 +170,7 @@ func Test_SupervisedPool_RemoveNoWorkers(t *testing.T) {
 	assert.NoError(t, err)
 
 	wrks := p.Workers()
-	for i := 0; i < len(wrks); i++ {
+	for range wrks {
 		assert.NoError(t, p.RemoveWorker(ctx))
 	}
 
@@ -195,7 +195,7 @@ func Test_SupervisedPool_RemoveWorker(t *testing.T) {
 	assert.NoError(t, err)
 
 	wrks := p.Workers()
-	for i := 0; i < len(wrks); i++ {
+	for range wrks {
 		assert.NoError(t, p.RemoveWorker(ctx))
 	}
 
@@ -271,7 +271,7 @@ func TestSupervisedPool_ExecWithDebugMode(t *testing.T) {
 
 	time.Sleep(time.Second)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		time.Sleep(time.Second)
 		_, err = p.Exec(ctx, &payload.Payload{
 			Context: []byte(""),

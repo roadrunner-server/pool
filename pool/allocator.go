@@ -65,7 +65,7 @@ func AllocateParallel(numWorkers uint64, allocator func() (*worker.Process, erro
 
 	err := eg.Wait()
 	if err != nil {
-		for j := 0; j < len(workers); j++ {
+		for j := range workers {
 			jj := j
 			if workers[jj] != nil {
 				go func() {

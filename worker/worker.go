@@ -93,7 +93,7 @@ func InitBaseWorker(cmd *exec.Cmd, options ...Options) (*Process, error) {
 	}
 
 	// add options
-	for i := 0; i < len(options); i++ {
+	for i := range options {
 		options[i](w)
 	}
 

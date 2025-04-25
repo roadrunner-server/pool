@@ -57,7 +57,7 @@ func (ww *WorkerWatcher) Watch(workers []*worker.Process) error {
 	defer ww.Unlock()
 
 	// else we can add all workers
-	for i := 0; i < len(workers); i++ {
+	for i := range workers {
 		ww.container.Push(workers[i])
 		// add worker to watch slice
 		ww.workers[workers[i].Pid()] = workers[i]

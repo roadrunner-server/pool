@@ -82,7 +82,7 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 	}
 
 	// apply options
-	for i := 0; i < len(options); i++ {
+	for i := range options {
 		options[i](p)
 	}
 

@@ -160,7 +160,7 @@ func Test_Pipe_Broken2(t *testing.T) {
 
 func Benchmark_Pipe_SpawnWorker_Stop2(b *testing.B) {
 	f := NewPipeFactory(log)
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 		w, _ := f.SpawnWorkerWithContext(context.Background(), cmd)
 		go func() {
@@ -182,7 +182,7 @@ func Benchmark_Pipe_Worker_ExecEcho2(b *testing.B) {
 	w, _ := NewPipeFactory(log).SpawnWorkerWithContext(context.Background(), cmd)
 
 	b.ReportAllocs()
-	b.ResetTimer()
+
 	go func() {
 		err := w.Wait()
 		if err != nil {
@@ -196,7 +196,7 @@ func Benchmark_Pipe_Worker_ExecEcho2(b *testing.B) {
 		}
 	}()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		if _, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")}); err != nil {
 			b.Fail()
 		}
@@ -217,7 +217,7 @@ func Benchmark_Pipe_Worker_ExecEcho4(b *testing.B) {
 		}
 	}()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		if _, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")}); err != nil {
 			b.Fail()
 		}
@@ -238,7 +238,7 @@ func Benchmark_Pipe_Worker_ExecEchoWithoutContext2(b *testing.B) {
 		}
 	}()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		if _, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")}); err != nil {
 			b.Fail()
 		}

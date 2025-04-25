@@ -42,7 +42,7 @@ func (sp *Pool) control() {
 	// It's a copy of the Workers pointers
 	workers := sp.Workers()
 
-	for i := 0; i < len(workers); i++ {
+	for i := range workers {
 		// if worker not in the Ready OR working state,
 		// skip such a worker
 		switch workers[i].State().CurrentState() {

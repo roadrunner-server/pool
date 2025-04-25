@@ -100,7 +100,7 @@ func (v *Vec) Remove() {
 		2. Violated Get <-> Release operation (how ??)
 	*/
 
-	for i := 0; i < len(v.workers); i++ {
+	for range len(v.workers) {
 		/*
 			We need to drain vector until we found a worker in the Invalid/Killing/Killed/etc states.
 			BUT while we are draining the vector, some worker might be reallocated and pushed into the v.workers

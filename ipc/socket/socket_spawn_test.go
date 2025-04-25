@@ -408,7 +408,7 @@ func Benchmark_Tcp_SpawnWorker_Stop2(b *testing.B) {
 	}
 
 	f := NewSocketServer(ls, log)
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		cmd := exec.Command("php", "../../tests/client.php", "echo", "tcp")
 
 		w, err := f.SpawnWorkerWithContext(context.Background(), cmd)
@@ -453,7 +453,7 @@ func Benchmark_Tcp_Worker_ExecEcho2(b *testing.B) {
 		}
 	}()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		if _, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")}); err != nil {
 			b.Fail()
 		}
@@ -472,7 +472,7 @@ func Benchmark_Unix_SpawnWorker_Stop2(b *testing.B) {
 	}
 
 	f := NewSocketServer(ls, log)
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		cmd := exec.Command("php", "../../tests/client.php", "echo", "unix")
 
 		w, err := f.SpawnWorkerWithContext(context.Background(), cmd)
@@ -513,7 +513,7 @@ func Benchmark_Unix_Worker_ExecEcho2(b *testing.B) {
 		}
 	}()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		if _, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")}); err != nil {
 			b.Fail()
 		}
