@@ -3,6 +3,7 @@ package static_pool //nolint:stylecheck
 import (
 	"context"
 	stderr "errors"
+	"github.com/roadrunner-server/pool/fsm"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,7 @@ type dynAllocator struct {
 	maxWorkers  uint64
 	spawnRate   uint64
 	idleTimeout time.Duration
+	threshold   uint64
 
 	// internal
 	currAllocated  atomic.Pointer[uint64]
@@ -44,6 +46,7 @@ func newDynAllocator(
 		maxWorkers:     cfg.DynamicAllocatorOpts.MaxWorkers,
 		spawnRate:      cfg.DynamicAllocatorOpts.SpawnRate,
 		idleTimeout:    cfg.DynamicAllocatorOpts.IdleTimeout,
+		threshold:      cfg.DynamicAllocatorOpts.Threshold,
 		mu:             &sync.Mutex{},
 		ttlTriggerChan: make(chan struct{}, 1),
 		ww:             ww,
@@ -67,10 +70,11 @@ func (da *dynAllocator) allocateDynamically() (*worker.Process, error) {
 	da.mu.Lock()
 	defer da.mu.Unlock()
 
-	da.log.Debug("No free workers, trying to allocate dynamically",
+	da.log.Debug("Checking if we need to allocate workers dynamically",
 		zap.Duration("idle_timeout", da.idleTimeout),
 		zap.Uint64("max_workers", da.maxWorkers),
-		zap.Uint64("spawn_rate", da.spawnRate))
+		zap.Uint64("spawn_rate", da.spawnRate),
+		zap.Uint64("threshold", da.threshold))
 
 	if !*da.started.Load() {
 		// start the dynamic allocator listener
@@ -159,26 +163,78 @@ func (da *dynAllocator) dynamicTTLListener() {
 					goto exit
 				}
 
-				alloc := *da.currAllocated.Load()
-				for i := uint64(0); i < alloc; i++ {
-					// take the worker from the stack, inifinite timeout
-					// we should not block here forever
-					err := da.ww.RemoveWorker(context.Background())
-					if err != nil {
-						da.log.Error("failed to take worker from the stack", zap.Error(err))
-						continue
-					}
+				workers := da.ww.List()
 
-					// reset the number of allocated workers
-					// potential problem: if we'd have an error in the da.ww.Take code block, we'd still have the currAllocated > 0
-
-					// decrease number of additionally allocated options
-					_ = da.currAllocated.Swap(p(*da.currAllocated.Load() - 1))
-					da.log.Debug("deallocated additional worker", zap.Uint64("currently additionally allocated", *da.currAllocated.Load()))
+				// Get the total number of workers
+				totalWorkers := len(workers)
+				if totalWorkers == 0 {
+					da.mu.Unlock()
+					da.execLock.Unlock()
+					goto exit
 				}
 
-				if *da.currAllocated.Load() != 0 {
-					da.log.Error("failed to deallocate all dynamically allocated workers", zap.Uint64("remaining", *da.currAllocated.Load()))
+				// Calculate how many workers we can deallocate without going below the threshold
+				// We need to ensure that after deallocation, the percentage of free workers is still above the threshold
+				// First, estimate the number of free workers (this is an approximation)
+				// We know that dynamically allocated workers are likely free, so we'll use that as a starting point
+				var freeWorkers uint64 = 0
+				for _, w := range workers {
+					if w.State().Compare(fsm.StateReady) {
+						freeWorkers++
+					}
+				}
+
+				// Calculate the percentage of free workers after potential deallocation
+				// We want to ensure: (freeWorkers - workersToRemove) / totalWorkers >= threshold / 100
+				// Solving for workersToRemove: workersToRemove <= freeWorkers - (threshold * totalWorkers / 100)
+				minFreeWorkersNeeded := (da.threshold * uint64(totalWorkers)) / 100
+
+				var workersToRemove uint64
+				if freeWorkers > minFreeWorkersNeeded {
+					workersToRemove = freeWorkers - minFreeWorkersNeeded
+				} else {
+					// If we're already at or below the threshold, don't remove any workers
+					workersToRemove = 0
+				}
+
+				da.log.Debug("calculating workers to remove",
+					zap.Uint64("total_workers", uint64(totalWorkers)),
+					zap.Uint64("estimated_free_workers", freeWorkers),
+					zap.Uint64("min_free_workers_needed", minFreeWorkersNeeded),
+					zap.Uint64("workers_to_remove", workersToRemove),
+					zap.Uint64("threshold", da.threshold))
+
+				// Only remove workers if we need to
+				if workersToRemove > 0 {
+					// Limit to the number of dynamically allocated workers
+					if workersToRemove > *da.currAllocated.Load() {
+						workersToRemove = *da.currAllocated.Load()
+					}
+
+					for i := uint64(0); i < workersToRemove; i++ {
+						// take the worker from the stack, infinite timeout
+						// we should not block here forever
+						err := da.ww.RemoveWorker(context.Background())
+						if err != nil {
+							da.log.Error("failed to take worker from the stack", zap.Error(err))
+							continue
+						}
+
+						// decrease number of additionally allocated options
+						_ = da.currAllocated.Swap(p(*da.currAllocated.Load() - 1))
+						da.log.Debug("deallocated additional worker", zap.Uint64("currently additionally allocated", *da.currAllocated.Load()))
+					}
+				} else {
+					da.log.Debug("not removing any workers to maintain threshold",
+						zap.Uint64("threshold", da.threshold),
+						zap.Uint64("current_allocated", *da.currAllocated.Load()))
+				}
+
+				// Only log an error if we intended to remove all workers but failed
+				if workersToRemove == *da.currAllocated.Load() && *da.currAllocated.Load() != 0 {
+					da.log.Error("failed to deallocate all intended workers", zap.Uint64("remaining", *da.currAllocated.Load()))
+				} else if *da.currAllocated.Load() != 0 {
+					da.log.Debug("keeping some dynamically allocated workers to maintain threshold", zap.Uint64("remaining", *da.currAllocated.Load()))
 				}
 
 				da.mu.Unlock()

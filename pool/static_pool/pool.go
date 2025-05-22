@@ -445,5 +445,41 @@ func (sp *Pool) takeWorker(ctxGetFree context.Context, op errors.Op) (*worker.Pr
 		// else if err not nil - return error
 		return nil, errors.E(op, err)
 	}
+
+	// Check if we need to allocate more workers based on the threshold
+	if sp.cfg.DynamicAllocatorOpts != nil && !sp.cfg.Debug {
+		// Get the total number of workers
+		workers := sp.ww.List()
+		totalWorkers := len(workers)
+		freeWorkers := 0
+
+		for _, w := range workers {
+			if w.State().Compare(fsm.StateReady) {
+				freeWorkers++
+			}
+		}
+
+		if totalWorkers > 0 {
+			// Calculate the percentage of free workers
+			freeWorkersPercent := uint64(freeWorkers * 100 / totalWorkers)
+
+			// If the percentage of free workers is below the threshold, allocate more workers
+			if freeWorkersPercent <= sp.cfg.DynamicAllocatorOpts.Threshold {
+				sp.log.Debug(
+					"free workers percentage below threshold, allocating more workers",
+					zap.Uint64("free_workers", freeWorkers),
+					zap.Uint64("total_workers", totalWorkers),
+					zap.Uint64("free_workers_percent", freeWorkersPercent),
+					zap.Uint64("threshold", sp.cfg.DynamicAllocatorOpts.Threshold),
+				)
+
+				// Allocate more workers in a goroutine to avoid blocking the current request
+				go func() {
+					_, _ = sp.dynamicAllocator.allocateDynamically()
+				}()
+			}
+		}
+	}
+
 	return w, nil
 }

@@ -92,6 +92,8 @@ type DynamicAllocationOpts struct {
 	MaxWorkers  uint64        `mapstructure:"max_workers"`
 	SpawnRate   uint64        `mapstructure:"spawn_rate"`
 	IdleTimeout time.Duration `mapstructure:"idle_timeout"`
+	// Threshold defines at what percentage of remaining free workers the dynamic allocation mechanism should be triggered
+	Threshold uint64 `mapstructure:"threshold"`
 }
 
 func (d *DynamicAllocationOpts) InitDefaults() {
@@ -114,5 +116,15 @@ func (d *DynamicAllocationOpts) InitDefaults() {
 
 	if d.IdleTimeout == 0 || d.IdleTimeout < time.Second {
 		d.IdleTimeout = time.Minute
+	}
+
+	// Set default threshold to 20% if not specified
+	if d.Threshold == 0 {
+		d.Threshold = 20
+	}
+
+	// Ensure threshold is between 0 and 100
+	if d.Threshold > 100 {
+		d.Threshold = 100
 	}
 }
