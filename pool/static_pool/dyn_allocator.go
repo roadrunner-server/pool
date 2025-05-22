@@ -3,12 +3,12 @@ package static_pool //nolint:stylecheck
 import (
 	"context"
 	stderr "errors"
-	"github.com/roadrunner-server/pool/fsm"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/roadrunner-server/errors"
+	"github.com/roadrunner-server/pool/fsm"
 	"github.com/roadrunner-server/pool/pool"
 	"github.com/roadrunner-server/pool/worker"
 	"github.com/roadrunner-server/pool/worker_watcher"
