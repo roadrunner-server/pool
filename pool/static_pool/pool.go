@@ -450,8 +450,8 @@ func (sp *Pool) takeWorker(ctxGetFree context.Context, op errors.Op) (*worker.Pr
 	if sp.cfg.DynamicAllocatorOpts != nil && !sp.cfg.Debug {
 		// Get the total number of workers
 		workers := sp.ww.List()
-		totalWorkers := len(workers)
-		freeWorkers := 0
+		totalWorkers := uint64(len(workers))
+		freeWorkers := uint64(0)
 
 		for _, w := range workers {
 			if w.State().Compare(fsm.StateReady) {
