@@ -50,7 +50,7 @@ func AllocateParallel(numWorkers uint64, allocator func() (*worker.Process, erro
 	eg := new(errgroup.Group)
 
 	// constant number of stack simplify logic
-	for i := uint64(0); i < numWorkers; i++ {
+	for i := range numWorkers {
 		ii := i
 		eg.Go(func() error {
 			w, err := allocator()

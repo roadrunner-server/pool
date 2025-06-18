@@ -160,7 +160,7 @@ func (da *dynAllocator) dynamicTTLListener() {
 				}
 
 				alloc := *da.currAllocated.Load()
-				for i := uint64(0); i < alloc; i++ {
+				for range alloc {
 					// take the worker from the stack, inifinite timeout
 					// we should not block here forever
 					err := da.ww.RemoveWorker(context.Background())
