@@ -9,7 +9,7 @@ require (
 	github.com/roadrunner-server/events v1.0.1
 	github.com/roadrunner-server/goridge/v3 v3.8.3
 	github.com/shirou/gopsutil v3.21.11+incompatible
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/sync v0.16.0
 )
