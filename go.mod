@@ -1,8 +1,6 @@
 module github.com/roadrunner-server/pool
 
-go 1.24
-
-toolchain go1.24.0
+go 1.24.0
 
 require (
 	github.com/roadrunner-server/errors v1.4.1
@@ -11,7 +9,7 @@ require (
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.0
-	golang.org/x/sync v0.16.0
+	golang.org/x/sync v0.17.0
 )
 
 require (
