@@ -39,7 +39,6 @@ func newDynAllocator(
 	ww *worker_watcher.WorkerWatcher,
 	alloc func() (*worker.Process, error),
 	stopCh chan struct{},
-	execLock *sync.RWMutex,
 	cfg *pool.Config) *dynAllocator {
 	da := &dynAllocator{
 		maxWorkers:  cfg.DynamicAllocatorOpts.MaxWorkers,

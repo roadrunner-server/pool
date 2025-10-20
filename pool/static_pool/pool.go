@@ -122,7 +122,7 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 	}
 
 	if p.cfg.DynamicAllocatorOpts != nil {
-		p.dynamicAllocator = newDynAllocator(p.log, p.ww, p.allocator, p.stopCh, &p.mu, p.cfg)
+		p.dynamicAllocator = newDynAllocator(p.log, p.ww, p.allocator, p.stopCh, p.cfg)
 	}
 
 	return p, nil
