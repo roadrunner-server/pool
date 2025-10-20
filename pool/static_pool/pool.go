@@ -133,7 +133,7 @@ func (sp *Pool) GetConfig() *pool.Config {
 	return sp.cfg
 }
 
-// Workers return a worker list associated with the pool.
+// Workers returns a worker list associated with the pool.
 func (sp *Pool) Workers() (workers []*worker.Process) {
 	return sp.ww.List()
 }

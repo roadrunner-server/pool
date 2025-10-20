@@ -1,3 +1,6 @@
+// Dynamic allocator for the static pool implementation
+// It allocates new workers with batch spawn rate when there are no free workers
+// It uses 2 functions: allocateDynamically to allocate new workers and dynamicTTLListener
 package static_pool
 
 import (
@@ -23,7 +26,6 @@ type dynAllocator struct {
 	// internal
 	currAllocated atomic.Uint64
 	mu            *sync.Mutex
-	execLock      *sync.RWMutex
 	started       atomic.Bool
 	log           *zap.Logger
 	// pool
@@ -45,7 +47,6 @@ func newDynAllocator(
 		idleTimeout: cfg.DynamicAllocatorOpts.IdleTimeout,
 		mu:          &sync.Mutex{},
 		ww:          ww,
-		execLock:    execLock,
 		allocator:   alloc,
 		log:         log,
 		stopCh:      stopCh,
@@ -96,8 +97,8 @@ func (da *dynAllocator) allocateDynamically() (*worker.Process, error) {
 		}
 
 		// increase the number of additionally allocated options
-		da.currAllocated.Add(1)
-		da.log.Debug("allocated additional worker", zap.Uint64("currently additionally allocated", da.currAllocated.Load()))
+		aw := da.currAllocated.Add(1)
+		da.log.Debug("allocated additional worker", zap.Uint64("currently additionally allocated", aw))
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
@@ -121,15 +122,12 @@ func (da *dynAllocator) dynamicTTLListener() {
 			case <-triggerTTL.C:
 				triggerTTL.Stop()
 				da.log.Debug("dynamic workers TTL", zap.String("reason", "idle timeout reached"))
-				// get the Exec (the whole operation) lock
-				da.execLock.Lock()
 				// get the DynamicAllocatorOpts lock to prevent operations on the CurrAllocated
 				da.mu.Lock()
 
 				// if we don't have any dynamically allocated workers, we can skip the deallocation
 				if da.currAllocated.Load() == 0 {
 					da.mu.Unlock()
-					da.execLock.Unlock()
 					goto exit
 				}
 
@@ -147,8 +145,8 @@ func (da *dynAllocator) dynamicTTLListener() {
 					// potential problem: if we had an error in the da.ww.Take code block, we'd still have the currAllocated > 0
 
 					// decrease the number of additionally allocated options
-					_ = da.currAllocated.Add(^uint64(0)) // subtract 1
-					da.log.Debug("deallocated additional worker", zap.Uint64("currently additionally allocated", da.currAllocated.Load()))
+					nw := da.currAllocated.Add(^uint64(0))
+					da.log.Debug("deallocated additional worker", zap.Uint64("currently additionally allocated", nw))
 				}
 
 				if da.currAllocated.Load() != 0 {
@@ -156,7 +154,6 @@ func (da *dynAllocator) dynamicTTLListener() {
 				}
 
 				da.mu.Unlock()
-				da.execLock.Unlock()
 				goto exit
 			}
 		}
