@@ -77,7 +77,7 @@ func (da *dynAllocator) allocateDynamically() (*worker.Process, error) {
 	}
 
 	// if we already allocated max workers, we can't allocate more
-	if da.currAllocated.Load() == da.maxWorkers {
+	if da.currAllocated.Load() >= da.maxWorkers {
 		// can't allocate more
 		return nil, errors.E(op, fmt.Errorf("can't allocate more workers, increase max_workers option (max_workers limit is %d)", da.maxWorkers), errors.NoFreeWorkers)
 	}
