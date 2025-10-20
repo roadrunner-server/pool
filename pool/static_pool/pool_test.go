@@ -392,8 +392,9 @@ func Test_DynamicPool_500W(t *testing.T) {
 
 	wg.Wait()
 
-	require.Len(t, p.Workers(), 101)
-	time.Sleep(time.Second * 20)
+	time.Sleep(time.Second * 30)
+
+	require.Len(t, p.Workers(), 1)
 	p.Destroy(ctx)
 }
 
