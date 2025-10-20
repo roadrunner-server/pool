@@ -96,7 +96,7 @@ func (da *dynAllocator) allocateDynamically() (*worker.Process, error) {
 		}
 
 		// increase the number of additionally allocated options
-		_ = da.currAllocated.Swap(da.currAllocated.Load() + 1)
+		da.currAllocated.Add(1)
 		da.log.Debug("allocated additional worker", zap.Uint64("currently additionally allocated", da.currAllocated.Load()))
 	}
 
@@ -147,7 +147,7 @@ func (da *dynAllocator) dynamicTTLListener() {
 					// potential problem: if we had an error in the da.ww.Take code block, we'd still have the currAllocated > 0
 
 					// decrease the number of additionally allocated options
-					_ = da.currAllocated.Swap(da.currAllocated.Load() - 1)
+					_ = da.currAllocated.Add(^uint64(0)) // subtract 1
 					da.log.Debug("deallocated additional worker", zap.Uint64("currently additionally allocated", da.currAllocated.Load()))
 				}
 
