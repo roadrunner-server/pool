@@ -381,7 +381,7 @@ func (sp *Pool) NumDynamic() uint64 {
 		return 0
 	}
 
-	return *sp.dynamicAllocator.currAllocated.Load()
+	return sp.dynamicAllocator.currAllocated.Load()
 }
 
 // Destroy all underlying workers (but let them complete the task).
