@@ -1,4 +1,4 @@
-package worker_watcher //nolint:stylecheck
+package worker_watcher
 
 import (
 	"context"
@@ -253,7 +253,7 @@ func (ww *WorkerWatcher) Reset(ctx context.Context) uint64 {
 			}
 			ww.RUnlock()
 			// All workers at this moment are in the container
-			// Pop operation is blocked, push can't be done, since it's not possible to pop
+			// Pop operation is blocked; push can't be done, since it's not possible to pop
 			ww.Lock()
 
 			wg := &sync.WaitGroup{}
