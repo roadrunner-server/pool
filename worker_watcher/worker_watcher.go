@@ -25,7 +25,7 @@ type WorkerWatcher struct {
 	// actually don't have a lot of impl here, so interface not needed
 	container *channel.Vec
 	// used to control Destroy stage (that all workers are in the container)
-	numWorkers uint64
+	numWorkers atomic.Uint64
 	eventBus   *events.Bus
 
 	// map with the worker's pointers
@@ -40,16 +40,18 @@ type WorkerWatcher struct {
 // NewSyncWorkerWatcher is a constructor for the Watcher
 func NewSyncWorkerWatcher(allocator Allocator, log *zap.Logger, numWorkers uint64, allocateTimeout time.Duration) *WorkerWatcher {
 	eb, _ := events.NewEventBus()
-	return &WorkerWatcher{
-		container: channel.NewVector(),
-		log:       log,
-		eventBus:  eb,
-		// pass a ptr to the number of workers to avoid blocking in the TTL loop
-		numWorkers:      numWorkers,
+	ww := &WorkerWatcher{
+		container:       channel.NewVector(numWorkers),
+		log:             log,
+		eventBus:        eb,
 		allocateTimeout: allocateTimeout,
 		workers:         make(map[int64]*worker.Process, numWorkers),
 		allocator:       allocator,
 	}
+
+	// pass a ptr to the number of workers to avoid blocking in the TTL loop
+	ww.numWorkers.Store(numWorkers)
+	return ww
 }
 
 func (ww *WorkerWatcher) Watch(workers []*worker.Process) error {
@@ -68,7 +70,7 @@ func (ww *WorkerWatcher) Watch(workers []*worker.Process) error {
 }
 
 func (ww *WorkerWatcher) AddWorker() error {
-	if atomic.LoadUint64(&ww.numWorkers) >= maxWorkers {
+	if ww.numWorkers.Load() >= maxWorkers {
 		return errors.E(errors.WorkerAllocate, errors.Str("container is full, maximum number of workers reached"))
 	}
 
@@ -77,13 +79,13 @@ func (ww *WorkerWatcher) AddWorker() error {
 		return err
 	}
 
-	atomic.AddUint64(&ww.numWorkers, 1)
+	ww.numWorkers.Add(1)
 	return nil
 }
 
 func (ww *WorkerWatcher) RemoveWorker(ctx context.Context) error {
 	// can't remove the last worker
-	if atomic.LoadUint64(&ww.numWorkers) == 1 {
+	if ww.numWorkers.Load() == 1 {
 		ww.log.Warn("can't remove the last worker")
 		return nil
 	}
@@ -97,7 +99,7 @@ func (ww *WorkerWatcher) RemoveWorker(ctx context.Context) error {
 	w.State().Transition(fsm.StateDestroyed)
 	_ = w.Stop()
 
-	atomic.AddUint64(&ww.numWorkers, ^uint64(0))
+	ww.numWorkers.Add(^uint64(0))
 	ww.Lock()
 	delete(ww.workers, w.Pid())
 	ww.Unlock()
@@ -176,7 +178,7 @@ func (ww *WorkerWatcher) Allocate() error {
 			select {
 			case <-tt:
 				// reduce the number of workers
-				atomic.AddUint64(&ww.numWorkers, ^uint64(0))
+				ww.numWorkers.Add(^uint64(0))
 				allocateFreq.Stop()
 				// timeout exceeds, worker can't be allocated
 				return errors.E(op, errors.WorkerAllocate, err)
@@ -247,7 +249,7 @@ func (ww *WorkerWatcher) Reset(ctx context.Context) uint64 {
 			ww.RLock()
 
 			// that might be one of the workers is working. To proceed, all workers should be inside a channel
-			if atomic.LoadUint64(&ww.numWorkers) != uint64(ww.container.Len()) { //nolint:gosec
+			if ww.numWorkers.Load() != uint64(ww.container.Len()) { //nolint:gosec
 				ww.RUnlock()
 				continue
 			}
@@ -280,7 +282,7 @@ func (ww *WorkerWatcher) Reset(ctx context.Context) uint64 {
 			// todo: rustatian, do we need this mutex?
 			ww.Unlock()
 
-			return atomic.LoadUint64(&ww.numWorkers)
+			return ww.numWorkers.Load()
 		case <-ctx.Done():
 			// kill workers
 			ww.Lock()
@@ -309,7 +311,7 @@ func (ww *WorkerWatcher) Reset(ctx context.Context) uint64 {
 			ww.container.ResetDone()
 			ww.Unlock()
 
-			return atomic.LoadUint64(&ww.numWorkers)
+			return ww.numWorkers.Load()
 		}
 	}
 }
@@ -329,7 +331,7 @@ func (ww *WorkerWatcher) Destroy(ctx context.Context) {
 		case <-tt.C:
 			ww.RLock()
 			// that might be one of the workers is working
-			if atomic.LoadUint64(&ww.numWorkers) != uint64(ww.container.Len()) { //nolint:gosec
+			if ww.numWorkers.Load() != uint64(ww.container.Len()) { //nolint:gosec
 				ww.RUnlock()
 				continue
 			}
@@ -396,7 +398,7 @@ func (ww *WorkerWatcher) List() []*worker.Process {
 	ww.RLock()
 	defer ww.RUnlock()
 
-	if atomic.LoadUint64(&ww.numWorkers) == 0 {
+	if ww.numWorkers.Load() == 0 {
 		return nil
 	}
 
@@ -429,7 +431,7 @@ func (ww *WorkerWatcher) wait(w *worker.Process) {
 	err = ww.Allocate()
 	if err != nil {
 		ww.log.Error("failed to allocate the worker", zap.String("internal_event_name", events.EventWorkerError.String()), zap.Error(err))
-		if atomic.LoadUint64(&ww.numWorkers) == 0 {
+		if ww.numWorkers.Load() == 0 {
 			panic("no workers available, can't run the application")
 		}
 

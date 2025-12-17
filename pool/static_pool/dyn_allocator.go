@@ -5,7 +5,6 @@ package static_pool
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,7 +56,7 @@ func newDynAllocator(
 	return da
 }
 
-func (da *dynAllocator) allocateDynamically() (*worker.Process, error) {
+func (da *dynAllocator) allocateDynamically() {
 	const op = errors.Op("allocate_dynamically")
 
 	// operation lock
@@ -79,7 +78,8 @@ func (da *dynAllocator) allocateDynamically() (*worker.Process, error) {
 	// if we already allocated max workers, we can't allocate more
 	if da.currAllocated.Load() >= da.maxWorkers {
 		// can't allocate more
-		return nil, errors.E(op, fmt.Errorf("can't allocate more workers, increase max_workers option (max_workers limit is %d)", da.maxWorkers), errors.NoFreeWorkers)
+		da.log.Warn("can't allocate more workers, already allocated max workers", zap.Uint64("max_workers", da.maxWorkers))
+		return
 	}
 
 	// we're starting from the 1 because we already allocated one worker which would be released in the Exec function
@@ -92,19 +92,14 @@ func (da *dynAllocator) allocateDynamically() (*worker.Process, error) {
 
 		err := da.ww.AddWorker()
 		if err != nil {
-			return nil, errors.E(op, err)
+			da.log.Error("failed to allocate worker", zap.Error(err))
+			continue
 		}
 
 		// increase the number of additionally allocated options
 		aw := da.currAllocated.Add(1)
 		da.log.Debug("allocated additional worker", zap.Uint64("currently additionally allocated", aw))
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	w, err := da.ww.Take(ctx)
-	cancel()
-
-	return w, err
 }
 
 func (da *dynAllocator) dynamicTTLListener() {
@@ -132,7 +127,7 @@ func (da *dynAllocator) dynamicTTLListener() {
 
 				alloc := da.currAllocated.Load()
 				for range alloc {
-					// take the worker from the stack, inifinite timeout
+					// take the worker from the stack, infinite timeout
 					// we should not block here forever
 					err := da.ww.RemoveWorker(context.Background())
 					if err != nil {

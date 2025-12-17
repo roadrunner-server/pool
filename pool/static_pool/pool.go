@@ -440,7 +440,7 @@ func (sp *Pool) takeWorker(ctxGetFree context.Context, op errors.Op) (*worker.Pr
 			// this will lead to the following case - all previous requests would be able to get the worker, since we're allocating them in the allocateDynamically
 			// however, requests waiting for the lock won't allocate a new worker and would be failed
 
-			return sp.dynamicAllocator.allocateDynamically()
+			sp.dynamicAllocator.allocateDynamically()
 		}
 		// else if err not nil - return error
 		return nil, errors.E(op, err)
