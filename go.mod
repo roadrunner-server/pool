@@ -1,6 +1,6 @@
 module github.com/roadrunner-server/pool
 
-go 1.24.0
+go 1.25
 
 require (
 	github.com/roadrunner-server/errors v1.4.1
