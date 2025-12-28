@@ -139,7 +139,8 @@ func (da *dynAllocator) startIdleTTLListener() {
 			case <-triggerTTL.C:
 				da.log.Debug("dynamic workers TTL", zap.String("reason", "idle timeout reached"))
 				// check the last allocation time - if we had an allocation recently (within idleTimeout), we should skip deallocation
-				if da.lastAllocTry.Load() != nil && time.Since(*da.lastAllocTry.Load()) < da.idleTimeout {
+				lastAlloc := da.lastAllocTry.Load()
+				if lastAlloc != nil && time.Since(*lastAlloc) < da.idleTimeout {
 					da.log.Debug("skipping deallocation of dynamic workers, recent allocation detected")
 					continue
 				}
