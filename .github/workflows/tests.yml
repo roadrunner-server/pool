@@ -50,6 +50,10 @@ jobs:
         run: make test_coverage
         shell: bash
 
+      - name: Run golang tests with coverage on macOS
+        if: runner.os == 'macOS'
+        run: make test_coverage
+
       - uses: codecov/codecov-action@v5 # Docs: <https://github.com/codecov/codecov-action>
         with:
           files: ./coverage-ci/summary.txt
