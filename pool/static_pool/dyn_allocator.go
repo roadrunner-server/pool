@@ -1,6 +1,6 @@
 // Dynamic allocator for the static pool implementation
 // It allocates new workers with batch spawn rate when there are no free workers
-// It uses 2 functions: allocateDynamically to allocate new workers and dynamicTTLListener
+// It uses 2 functions: addMoreWorkers to allocate new workers and dynamicTTLListener
 package static_pool
 
 import (
