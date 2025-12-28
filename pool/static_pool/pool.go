@@ -1,4 +1,4 @@
-package static_pool //nolint:stylecheck
+package static_pool
 
 import (
 	"context"
@@ -19,11 +19,11 @@ import (
 )
 
 const (
-	// StopRequest can be sent by worker to indicate that restart is required.
+	// StopRequest can be sent by a worker to indicate that restart is required.
 	StopRequest = `{"stop":true}`
 )
 
-// Pool controls worker creation, destruction and task routing. Pool uses fixed amount of stack.
+// Pool controls worker creation, destruction and task routing. Pool uses a fixed number of workers.
 type Pool struct {
 	// pool configuration
 	cfg *pool.Config
@@ -31,7 +31,7 @@ type Pool struct {
 	log *zap.Logger
 	// worker command creator
 	cmd pool.Command
-	// creates and connects to stack
+	// creates and connects to workers
 	factory pool.Factory
 	// manages worker states and TTLs
 	ww *workerWatcher.WorkerWatcher
@@ -48,7 +48,7 @@ type Pool struct {
 	mu             sync.RWMutex
 }
 
-// NewPool creates a new worker pool and task multiplexer. Pool will initiate with one worker. If supervisor configuration is provided -> pool will be turned into a supervisedExec mode
+// NewPool creates a new worker pool and task multiplexer. Pool will initialize with the configured number of workers. If supervisor configuration is provided -> pool will be turned into a supervisedExec mode
 func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *pool.Config, log *zap.Logger, options ...Options) (*Pool, error) {
 	if factory == nil {
 		return nil, errors.Str("no factory initialized")
@@ -94,12 +94,12 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 		}
 	}
 
-	// set up workers allocator
+	// set up workers' allocator
 	p.allocator = pool.NewPoolAllocator(ctx, p.cfg.AllocateTimeout, p.cfg.MaxJobs, factory, cmd, p.cfg.Command, p.log)
-	// set up workers watcher
+	// set up workers' watcher
 	p.ww = workerWatcher.NewSyncWorkerWatcher(p.allocator, p.log, p.cfg.NumWorkers, p.cfg.AllocateTimeout)
 
-	// allocate requested number of workers
+	// allocate the requested number of workers
 	workers, err := pool.AllocateParallel(p.cfg.NumWorkers, p.allocator)
 	if err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 	}
 
 	if p.cfg.DynamicAllocatorOpts != nil {
-		p.dynamicAllocator = newDynAllocator(p.log, p.ww, p.allocator, p.stopCh, &p.mu, p.cfg)
+		p.dynamicAllocator = newDynAllocator(p.log, p.ww, p.allocator, p.stopCh, p.cfg)
 	}
 
 	return p, nil
@@ -133,7 +133,7 @@ func (sp *Pool) GetConfig() *pool.Config {
 	return sp.cfg
 }
 
-// Workers returns worker list associated with the pool.
+// Workers returns a worker list associated with the pool.
 func (sp *Pool) Workers() (workers []*worker.Process) {
 	return sp.ww.List()
 }
@@ -186,7 +186,7 @@ func (sp *Pool) Exec(ctx context.Context, p *payload.Payload, stopCh chan struct
 	}
 
 	/*
-		register request in the QUEUE
+		register a request in the QUEUE
 	*/
 	atomic.AddUint64(&sp.queue, 1)
 	defer atomic.AddUint64(&sp.queue, ^uint64(0))
@@ -222,7 +222,7 @@ begin:
 		// just push event if on any stage was timeout error
 		switch {
 		case errors.Is(errors.ExecTTL, err):
-			// for this case, worker already killed in the ExecTTL function
+			// in this case, the worker already killed in the ExecTTL function
 			sp.log.Warn("worker stopped, and will be restarted", zap.String("reason", "execTTL timeout elapsed"), zap.Int64("pid", w.Pid()), zap.String("internal_event_name", events.EventExecTTL.String()), zap.Error(err))
 			w.State().Transition(fsm.StateExecTTLReached)
 
@@ -230,7 +230,7 @@ begin:
 			return nil, err
 		case errors.Is(errors.SoftJob, err):
 			/*
-				in case of soft job error, we should not kill the worker, this is just an error payload from the worker.
+				in case of soft job error, we should not kill the worker; this is just an error payload from the worker.
 			*/
 			w.State().Transition(fsm.StateReady)
 			sp.log.Warn("soft worker error", zap.String("reason", "SoftJob"), zap.Int64("pid", w.Pid()), zap.String("internal_event_name", events.EventWorkerSoftError.String()), zap.Error(err))
@@ -260,7 +260,7 @@ begin:
 		}
 	}
 
-	// worker want's to be terminated
+	// worker wants to be terminated
 	// unsafe is used to quickly transform []byte to string
 	if len(rsp.Body) == 0 && unsafe.String(unsafe.SliceData(rsp.Context), len(rsp.Context)) == StopRequest {
 		w.State().Transition(fsm.StateInvalid)
@@ -271,14 +271,14 @@ begin:
 	switch {
 	case rsp.Flags&frame.STREAM != 0:
 		sp.log.Debug("stream mode", zap.Int64("pid", w.Pid()))
-		// create channel for the stream (only if there are no errors)
+		// create a channel for the stream (only if there are no errors)
 		// we need to create a buffered channel to prevent blocking
 		// stream buffer size should be bigger than regular, to have some payloads ready (optimization)
 		resp := make(chan *PExec, 5)
 		// send the initial frame
 		resp <- newPExec(rsp, nil)
 
-		// in case of stream we should not return worker back immediately
+		// in case of stream, we should not return worker back immediately
 		go func() {
 			// would be called on Goexit
 			defer func() {
@@ -290,7 +290,7 @@ begin:
 			// stream iterator
 			for {
 				select {
-				// we received stop signal
+				// we received a stop signal
 				case <-stopCh:
 					sp.log.Debug("stream stop signal received", zap.Int("pid", int(w.Pid())), zap.String("state", w.State().String()))
 					ctxT, cancelT := context.WithTimeout(ctx, sp.cfg.StreamTimeout)
@@ -381,10 +381,10 @@ func (sp *Pool) NumDynamic() uint64 {
 		return 0
 	}
 
-	return *sp.dynamicAllocator.currAllocated.Load()
+	return sp.dynamicAllocator.currAllocated.Load()
 }
 
-// Destroy all underlying stack (but let them complete the task).
+// Destroy all underlying workers (but let them complete the task).
 func (sp *Pool) Destroy(ctx context.Context) {
 	sp.log.Info("destroy signal received", zap.Duration("timeout", sp.cfg.DestroyTimeout))
 	var cancel context.CancelFunc
@@ -422,7 +422,7 @@ func (sp *Pool) takeWorker(ctxGetFree context.Context, op errors.Op) (*worker.Pr
 	// Get function consumes context with timeout
 	w, err := sp.ww.Take(ctxGetFree)
 	if err != nil {
-		// if the error is of kind NoFreeWorkers, it means, that we can't get worker from the stack during the allocate timeout
+		// if the error is of kind NoFreeWorkers, it means that we can't get worker from the stack during the allocate timeout
 		if errors.Is(errors.NoFreeWorkers, err) {
 			sp.log.Error(
 				"no free workers in the pool, wait timeout exceed",
@@ -431,16 +431,15 @@ func (sp *Pool) takeWorker(ctxGetFree context.Context, op errors.Op) (*worker.Pr
 				zap.Error(err),
 			)
 
-			// if we don't have dynamic allocator or in debug mode, we can't allocate a new worker
+			// if we don't have a dynamic allocator or in debug mode, we can't allocate a new worker
 			if sp.cfg.DynamicAllocatorOpts == nil || sp.cfg.Debug {
 				return nil, errors.E(op, errors.NoFreeWorkers)
 			}
 
-			// for the dynamic allocator, we can would have many requests waiting at the same time on the lock in the dyn allocator
-			// this will lead to the following case - all previous requests would be able to get the worker, since we're allocating them in the allocateDynamically
-			// however, requests waiting for the lock, won't allocate a new worker and would be failed
-
-			return sp.dynamicAllocator.allocateDynamically()
+			// for the dynamic allocator, we would have many requests waiting at the same time on the lock in the dyn allocator
+			// this will lead to the following case - all previous requests would be able to get the worker, since we're allocating them in the addMoreWorkers
+			// however, requests waiting for the lock won't allocate a new worker and would be failed
+			sp.dynamicAllocator.addMoreWorkers()
 		}
 		// else if err not nil - return error
 		return nil, errors.E(op, err)

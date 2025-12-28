@@ -1,4 +1,4 @@
-package static_pool //nolint:stylecheck
+package static_pool
 
 import (
 	"time"

@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const maxWorkers = 2048
+
 // Config .. Pool config Configures the pool behavior.
 type Config struct {
 	// Debug flag creates new fresh worker before every request.
@@ -64,7 +66,7 @@ func (cfg *Config) InitDefaults() {
 
 	// initialize the dynamic allocator
 	if cfg.DynamicAllocatorOpts != nil {
-		cfg.DynamicAllocatorOpts.InitDefaults()
+		cfg.DynamicAllocatorOpts.InitDefaults(cfg.NumWorkers)
 	}
 }
 
@@ -94,14 +96,14 @@ type DynamicAllocationOpts struct {
 	IdleTimeout time.Duration `mapstructure:"idle_timeout"`
 }
 
-func (d *DynamicAllocationOpts) InitDefaults() {
+func (d *DynamicAllocationOpts) InitDefaults(numWorkers uint64) {
 	if d.MaxWorkers == 0 {
 		d.MaxWorkers = 10
 	}
 
-	// limit max workers to 100
-	if d.MaxWorkers > 100 {
-		d.MaxWorkers = 100
+	// limit max workers to 1000 dynamically allocated workers
+	if d.MaxWorkers+numWorkers > maxWorkers {
+		d.MaxWorkers = maxWorkers - numWorkers
 	}
 
 	if d.SpawnRate == 0 {

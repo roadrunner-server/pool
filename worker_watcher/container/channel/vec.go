@@ -25,7 +25,8 @@ func NewVector() *Vec {
 	vec := &Vec{
 		destroy: 0,
 		reset:   0,
-		workers: make(chan *worker.Process, 600),
+		// currently, we can have up to 2048 workers in the pool
+		workers: make(chan *worker.Process, 2048),
 	}
 
 	return vec
@@ -61,7 +62,7 @@ func (v *Vec) Pop(ctx context.Context) (*worker.Process, error) {
 		select {
 		case <-ctx.Done():
 		default:
-			time.Sleep(time.Millisecond * 100)
+			time.Sleep(time.Millisecond * 10)
 		}
 	}
 
