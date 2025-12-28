@@ -27,7 +27,7 @@ var testDynCfg = &pool.Config{
 	DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
 		MaxWorkers:  25,
 		SpawnRate:   5,
-		IdleTimeout: 10,
+		IdleTimeout: time.Second * 10,
 	},
 }
 
@@ -92,7 +92,7 @@ func Test_DynAllocatorManyReq(t *testing.T) {
 					return
 				}
 				resp := <-r
-				require.Equal(t, []byte("hello"), resp.Body())
+				assert.Equal(t, []byte("hello"), resp.Body())
 			}()
 		}
 	}()
