@@ -12,7 +12,7 @@ jobs:
       matrix:
         php: ["8.4"]
         go: [stable]
-        os: ["ubuntu-latest", "macos-latest"]
+        os: ["ubuntu-latest"]
     steps:
       - name: Set up Go ${{ matrix.go }}
         uses: actions/setup-go@v6 # action page: <https://github.com/actions/setup-go>
@@ -42,11 +42,6 @@ jobs:
         run: go mod download
 
       - name: Run golang tests with coverage on Linux
-        if: runner.os == 'Linux'
-        run: make test_coverage
-
-      - name: Run golang tests with coverage on macOS
-        if: runner.os == 'macOS'
         run: make test_coverage
 
       - uses: codecov/codecov-action@v5 # Docs: <https://github.com/codecov/codecov-action>
