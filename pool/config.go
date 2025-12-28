@@ -99,9 +99,9 @@ func (d *DynamicAllocationOpts) InitDefaults() {
 		d.MaxWorkers = 10
 	}
 
-	// limit max workers to 100
-	if d.MaxWorkers > 100 {
-		d.MaxWorkers = 100
+	// limit max workers to 1000
+	if d.MaxWorkers > 1000 {
+		d.MaxWorkers = 1000
 	}
 
 	if d.SpawnRate == 0 {
