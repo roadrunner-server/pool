@@ -25,6 +25,7 @@ func NewVector() *Vec {
 	vec := &Vec{
 		destroy: 0,
 		reset:   0,
+		// currently, we can have up to 2048 workers in the pool
 		workers: make(chan *worker.Process, 2048),
 	}
 

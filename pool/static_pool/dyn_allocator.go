@@ -1,6 +1,6 @@
 // Dynamic allocator for the static pool implementation
 // It allocates new workers with batch spawn rate when there are no free workers
-// It uses 2 functions: allocateDynamically to allocate new workers and dynamicTTLListener
+// It uses 2 functions: addMoreWorkers to allocate new workers and startIdleTTLListener
 package static_pool
 
 import (
@@ -31,7 +31,7 @@ type dynAllocator struct {
 	ww        *worker_watcher.WorkerWatcher
 	allocator func() (*worker.Process, error)
 	stopCh    chan struct{}
-	// the case is, that multiple goroutines can call allocateDynamically at the same time
+	// the case is, that multiple goroutines can call addMoreWorkers at the same time
 	// and we need to omit some NoFreeWorker calls if one is already in progress within the same time frame
 	rateLimit    *ratelimiter.RateLimiter
 	lastAllocTry atomic.Pointer[time.Time]
@@ -193,7 +193,7 @@ func (da *dynAllocator) startIdleTTLListener() {
 				}
 
 				// CRITICAL FIX: Set started=false BEFORE releasing the lock
-				// This ensures that any allocateDynamically() call that acquires the lock
+				// This ensures that any addMoreWorkers() call that acquires the lock
 				// after this point will see started=false and start a new listener
 				da.started.Store(false)
 				da.lastAllocTry.Store(nil)

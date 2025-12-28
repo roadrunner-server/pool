@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const maxWorkers = 500
+const maxWorkers = 2048
 
 // Allocator is responsible for worker allocation in the pool
 type Allocator func() (*worker.Process, error)
