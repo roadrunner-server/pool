@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"context"
 	"os/exec"
 	"testing"
 
@@ -36,7 +35,7 @@ func Test_NotStarted_Exec(t *testing.T) {
 	w, err := InitBaseWorker(cmd)
 	require.NoError(t, err)
 
-	_, err = w.Exec(context.Background(), &payload.Payload{
+	_, err = w.Exec(t.Context(), &payload.Payload{
 		Body: []byte("hello"),
 	})
 

@@ -33,7 +33,7 @@ func Test_Vec_PushPop(t *testing.T) {
 	assert.Equal(t, 1, vec.Len())
 
 	// Pop worker
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 
 	popped, err := vec.Pop(ctx)
@@ -57,7 +57,7 @@ func Test_Vec_Len(t *testing.T) {
 	assert.Equal(t, 5, vec.Len())
 
 	// Pop one
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 
 	_, err := vec.Pop(ctx)
@@ -78,7 +78,7 @@ func Test_Vec_PopAfterDestroy(t *testing.T) {
 	vec.Destroy()
 
 	// Pop should fail immediately with WatcherStopped
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 
 	popped, err := vec.Pop(ctx)
@@ -93,7 +93,7 @@ func Test_Vec_PopWithCanceledContext(t *testing.T) {
 	// Don't push any workers - channel is empty
 
 	// Create an already canceled context
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // Cancel immediately
 
 	popped, err := vec.Pop(ctx)
@@ -107,7 +107,7 @@ func Test_Vec_PopContextTimeout(t *testing.T) {
 	vec := NewVector()
 	// Empty channel - no workers to pop
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 
 	start := time.Now()

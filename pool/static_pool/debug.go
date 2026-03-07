@@ -38,7 +38,7 @@ func (sp *Pool) execDebug(ctx context.Context, p *payload.Payload, stopCh chan s
 		resp <- newPExec(rsp, nil)
 
 		// in case of stream, we should not return worker immediately
-		go func() {
+		go func() { //nolint:gosec // G118 - intentional: per-iteration exec timeout must be independent of request context
 			// would be called on Goexit
 			defer func() {
 				sp.log.Debug("stopping [stream] worker", zap.Int("pid", int(w.Pid())), zap.String("state", w.State().String()))

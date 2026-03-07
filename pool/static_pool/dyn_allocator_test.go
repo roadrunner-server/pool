@@ -1,7 +1,6 @@
 package static_pool
 
 import (
-	"context"
 	"os/exec"
 	"sync"
 	"testing"
@@ -32,9 +31,8 @@ var testDynCfg = &pool.Config{
 }
 
 func Test_DynAllocator(t *testing.T) {
-	ctx := context.Background()
 	np, err := NewPool(
-		ctx,
+		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
 		pipe.NewPipeFactory(dynlog()),
 		testDynCfg,
@@ -43,14 +41,13 @@ func Test_DynAllocator(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, np)
 
-	r, err := np.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+	r, err := np.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 	require.NoError(t, err)
 	resp := <-r
 
 	assert.Equal(t, []byte("hello"), resp.Body())
 	assert.NoError(t, err)
-
-	np.Destroy(ctx)
+	t.Cleanup(func() { np.Destroy(t.Context()) })
 }
 
 func Test_DynAllocatorManyReq(t *testing.T) {
@@ -67,9 +64,8 @@ func Test_DynAllocatorManyReq(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
 	np, err := NewPool(
-		ctx,
+		t.Context(),
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/client.php", "slow_req", "pipes")
 		},
@@ -81,26 +77,24 @@ func Test_DynAllocatorManyReq(t *testing.T) {
 	assert.NotNil(t, np)
 
 	wg := &sync.WaitGroup{}
-	wg.Add(1000)
 	go func() {
 		for range 1000 {
-			go func() {
-				defer wg.Done()
-				r, erre := np.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+			wg.Go(func() {
+				r, erre := np.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 				if erre != nil {
 					t.Log("failed request: ", erre.Error())
 					return
 				}
 				resp := <-r
 				assert.Equal(t, []byte("hello"), resp.Body())
-			}()
+			})
 		}
 	}()
 
 	go func() {
 		for range 10 {
 			time.Sleep(time.Second)
-			_ = np.Reset(context.Background())
+			_ = np.Reset(t.Context())
 		}
 	}()
 
@@ -109,8 +103,7 @@ func Test_DynAllocatorManyReq(t *testing.T) {
 	time.Sleep(time.Second * 30)
 
 	assert.Equal(t, 5, len(np.Workers()))
-
-	np.Destroy(ctx)
+	t.Cleanup(func() { np.Destroy(t.Context()) })
 }
 
 func Test_DynamicPool_OverMax(t *testing.T) {
@@ -125,9 +118,8 @@ func Test_DynamicPool_OverMax(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
 	p, err := NewPool(
-		ctx,
+		t.Context(),
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/worker-slow-dyn.php")
 		},
@@ -139,11 +131,10 @@ func Test_DynamicPool_OverMax(t *testing.T) {
 	assert.NotNil(t, p)
 
 	wg := &sync.WaitGroup{}
-	wg.Add(2)
 
-	go func() {
+	wg.Go(func() {
 		t.Log("sending request 1")
-		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 		require.NoError(t, err)
 		select {
 		case resp := <-r:
@@ -153,31 +144,27 @@ func Test_DynamicPool_OverMax(t *testing.T) {
 		case <-time.After(time.Second * 10):
 			assert.Fail(t, "timeout")
 		}
-
-		wg.Done()
-	}()
-	go func() {
+	})
+	wg.Go(func() {
 		// sleep to ensure the first request is being processed first
 		// this request should trigger dynamic allocation attempt and return an error
 		time.Sleep(time.Second)
 		t.Log("sending request 2")
-		_, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		_, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 		require.Error(t, err)
-		wg.Done()
-	}()
+	})
 
 	t.Log("waiting for the requests 1 and 2")
 	wg.Wait()
 	t.Log("wait 1 and 2 finished")
 
-	wg.Add(2)
 	// request 3 and 4 should be processed normally, since we have 2 workers now (1 initial + 1 dynamic)
 	t.Log("starting requests 3 and 4")
 	require.Len(t, p.Workers(), 2)
 
-	go func() {
+	wg.Go(func() {
 		t.Log("request 3")
-		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 		require.NoError(t, err)
 		select {
 		case resp := <-r:
@@ -187,12 +174,10 @@ func Test_DynamicPool_OverMax(t *testing.T) {
 		case <-time.After(time.Second * 10):
 			assert.Fail(t, "timeout")
 		}
-
-		wg.Done()
-	}()
-	go func() {
+	})
+	wg.Go(func() {
 		t.Log("request 4")
-		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 		require.NoError(t, err)
 		select {
 		case resp := <-r:
@@ -202,15 +187,15 @@ func Test_DynamicPool_OverMax(t *testing.T) {
 		case <-time.After(time.Second * 10):
 			assert.Fail(t, "timeout")
 		}
-
-		wg.Done()
-	}()
+	})
 
 	t.Log("waiting for the requests 3 and 4")
 	wg.Wait()
 	time.Sleep(time.Second * 20)
 	assert.Len(t, p.Workers(), 1)
-	p.Destroy(ctx)
+	t.Cleanup(func() {
+		p.Destroy(t.Context())
+	})
 }
 
 func Test_DynamicPool(t *testing.T) {
@@ -225,9 +210,8 @@ func Test_DynamicPool(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
-	p, err := NewPool(
-		ctx,
+	p, errp := NewPool(
+		t.Context(),
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/worker-slow-dyn.php")
 		},
@@ -235,15 +219,12 @@ func Test_DynamicPool(t *testing.T) {
 		dynAllCfg,
 		log(),
 	)
-	assert.NoError(t, err)
+	assert.NoError(t, errp)
 	assert.NotNil(t, p)
 
 	wg := &sync.WaitGroup{}
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+	wg.Go(func() {
+		r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 		require.NoError(t, err)
 		select {
 		case resp := <-r:
@@ -252,21 +233,21 @@ func Test_DynamicPool(t *testing.T) {
 		case <-time.After(time.Second * 10):
 			assert.Fail(t, "timeout")
 		}
-	}()
+	})
 
-	go func() {
+	wg.Go(func() {
 		time.Sleep(time.Second)
-		_, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		_, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 		require.Error(t, err)
-		wg.Done()
-	}()
+	})
 
 	wg.Wait()
 
 	time.Sleep(time.Second * 20)
 	require.Len(t, p.Workers(), 1)
-
-	p.Destroy(ctx)
+	t.Cleanup(func() {
+		p.Destroy(t.Context())
+	})
 }
 
 func Test_DynamicPool_500W(t *testing.T) {
@@ -282,9 +263,8 @@ func Test_DynamicPool_500W(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
 	p, err := NewPool(
-		ctx,
+		t.Context(),
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/worker-slow-dyn.php")
 		},
@@ -297,10 +277,9 @@ func Test_DynamicPool_500W(t *testing.T) {
 	require.Len(t, p.Workers(), 1)
 
 	wg := &sync.WaitGroup{}
-	wg.Add(2)
 
-	go func() {
-		r, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+	wg.Go(func() {
+		r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 		assert.NoError(t, err)
 		select {
 		case resp := <-r:
@@ -309,21 +288,18 @@ func Test_DynamicPool_500W(t *testing.T) {
 		case <-time.After(time.Second * 10):
 			assert.Fail(t, "timeout")
 		}
+	})
 
-		wg.Done()
-	}()
-
-	go func() {
+	wg.Go(func() {
 		time.Sleep(time.Second * 1)
-		_, err := p.Exec(ctx, &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		_, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
 		require.Error(t, err)
-		wg.Done()
-	}()
+	})
 
 	wg.Wait()
 
 	time.Sleep(time.Second * 30)
 
 	require.Len(t, p.Workers(), 1)
-	p.Destroy(ctx)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
 }

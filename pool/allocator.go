@@ -51,14 +51,13 @@ func AllocateParallel(numWorkers uint64, allocator func() (*worker.Process, erro
 
 	// constant number of stack simplify logic
 	for i := range numWorkers {
-		ii := i
 		eg.Go(func() error {
 			w, err := allocator()
 			if err != nil {
 				return errors.E(op, errors.WorkerAllocate, err)
 			}
 
-			workers[ii] = w
+			workers[i] = w
 			return nil
 		})
 	}
@@ -66,13 +65,12 @@ func AllocateParallel(numWorkers uint64, allocator func() (*worker.Process, erro
 	err := eg.Wait()
 	if err != nil {
 		for j := range workers {
-			jj := j
-			if workers[jj] != nil {
+			if workers[j] != nil {
 				go func() {
-					_ = workers[jj].Wait()
+					_ = workers[j].Wait()
 				}()
 
-				_ = workers[jj].Kill()
+				_ = workers[j].Kill()
 			}
 		}
 		return nil, err

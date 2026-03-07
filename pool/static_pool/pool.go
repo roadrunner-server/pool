@@ -40,8 +40,8 @@ type Pool struct {
 	// allocate new worker
 	allocator func() (*worker.Process, error)
 	// exec queue size
-	queue        uint64
-	maxQueueSize uint64
+	queue        atomic.Uint64
+	maxQueueSize atomic.Uint64
 	// used in the supervised mode
 	supervisedExec bool
 	stopCh         chan struct{}
@@ -77,7 +77,6 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 		cmd:     cmd,
 		factory: factory,
 		log:     log,
-		queue:   0,
 		stopCh:  make(chan struct{}),
 	}
 
@@ -170,7 +169,7 @@ func (sp *Pool) Exec(ctx context.Context, p *payload.Payload, stopCh chan struct
 	}
 
 	// check if we have space to put the request
-	if atomic.LoadUint64(&sp.maxQueueSize) != 0 && atomic.LoadUint64(&sp.queue) >= atomic.LoadUint64(&sp.maxQueueSize) {
+	if sp.maxQueueSize.Load() != 0 && sp.queue.Load() >= sp.maxQueueSize.Load() {
 		return nil, errors.E(op, errors.QueueSize, errors.Str("max queue size reached"))
 	}
 
@@ -188,8 +187,8 @@ func (sp *Pool) Exec(ctx context.Context, p *payload.Payload, stopCh chan struct
 	/*
 		register a request in the QUEUE
 	*/
-	atomic.AddUint64(&sp.queue, 1)
-	defer atomic.AddUint64(&sp.queue, ^uint64(0))
+	sp.queue.Add(1)
+	defer sp.queue.Add(^uint64(0))
 
 	// see notes at the end of the file
 begin:
@@ -279,7 +278,7 @@ begin:
 		resp <- newPExec(rsp, nil)
 
 		// in case of stream, we should not return worker back immediately
-		go func() {
+		go func() { //nolint:gosec // G118 - intentional: per-iteration exec timeout must be independent of request context
 			// would be called on Goexit
 			defer func() {
 				sp.log.Debug("release [stream] worker", zap.Int("pid", int(w.Pid())), zap.String("state", w.State().String()))
@@ -373,7 +372,7 @@ begin:
 }
 
 func (sp *Pool) QueueSize() uint64 {
-	return atomic.LoadUint64(&sp.queue)
+	return sp.queue.Load()
 }
 
 func (sp *Pool) NumDynamic() uint64 {
@@ -394,7 +393,7 @@ func (sp *Pool) Destroy(ctx context.Context) {
 		defer cancel()
 	}
 	sp.ww.Destroy(ctx)
-	atomic.StoreUint64(&sp.queue, 0)
+	sp.queue.Store(0)
 	close(sp.stopCh)
 }
 

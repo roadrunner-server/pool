@@ -64,7 +64,7 @@ func newDynAllocator(
 func (da *dynAllocator) addMoreWorkers() {
 	// set the last allocation try time
 	// we need to store this to prevent immediate deallocation in the TTL listener
-	da.lastAllocTry.Store(p(time.Now().UTC()))
+	da.lastAllocTry.Store(new(time.Now().UTC()))
 
 	if !da.rateLimit.TryAcquire() {
 		da.log.Warn("rate limit exceeded for dynamic allocation, skipping")
@@ -98,7 +98,7 @@ func (da *dynAllocator) addMoreWorkers() {
 
 	// we're starting from the 1 because we already allocated one worker which would be released in the Exec function
 	// i < da.spawnRate - we can't allocate more workers than the spawn rate
-	for i := uint64(0); i < da.spawnRate; i++ {
+	for range da.spawnRate {
 		// spawn as many workers as the user specified in the spawn rate configuration, but not more than max workers
 		if da.currAllocated.Load() >= da.maxWorkers {
 			break
@@ -204,8 +204,4 @@ func (da *dynAllocator) startIdleTTLListener() {
 			}
 		}
 	}()
-}
-
-func p[T any](v T) *T {
-	return &v
 }
