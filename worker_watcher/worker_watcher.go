@@ -49,7 +49,7 @@ func NewSyncWorkerWatcher(allocator Allocator, log *zap.Logger, numWorkers uint6
 		allocateTimeout: allocateTimeout,
 		workers:         sync.Map{},
 		allocator:       allocator,
-		stopCh:          make(chan struct{}),
+		stopCh:          make(chan struct{}, 1),
 	}
 
 	// pass a ptr to the number of workers to avoid blocking in the TTL loop
@@ -328,8 +328,11 @@ func (ww *WorkerWatcher) Destroy(ctx context.Context) {
 	ww.mu.Lock()
 	// do not release new workers
 	ww.container.Destroy()
-	// stop allocation of new workers if any
-	close(ww.stopCh)
+	// stop allocation of new workers if any (idempotent — safe on repeated Destroy calls)
+	select {
+	case ww.stopCh <- struct{}{}:
+	default:
+	}
 	ww.mu.Unlock()
 
 	tt := time.NewTicker(time.Second * 1)
