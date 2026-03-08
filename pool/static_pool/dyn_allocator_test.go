@@ -329,6 +329,7 @@ func Test_DynAllocator_100Workers(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
 	require.Len(t, p.Workers(), 5)
 
 	wg := &sync.WaitGroup{}
@@ -365,7 +366,6 @@ func Test_DynAllocator_100Workers(t *testing.T) {
 
 	assert.Equal(t, uint64(0), p.NumDynamic(), "all dynamic workers should be deallocated")
 	assert.Len(t, p.Workers(), 5, "should return to base worker count")
-	p.Destroy(t.Context())
 }
 
 // Test_DynAllocator_ReallocationCycle verifies that after all dynamic workers are deallocated
@@ -394,6 +394,7 @@ func Test_DynAllocator_ReallocationCycle(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
 	require.Len(t, p.Workers(), 2)
 
 	// === Cycle 1: Trigger allocation, then wait for full deallocation ===
@@ -440,5 +441,4 @@ func Test_DynAllocator_ReallocationCycle(t *testing.T) {
 
 	assert.Equal(t, uint64(0), p.NumDynamic(), "cycle 2: all dynamic workers should be deallocated")
 	assert.Len(t, p.Workers(), 2, "cycle 2: should return to base count after re-allocation")
-	p.Destroy(t.Context())
 }
