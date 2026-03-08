@@ -9,28 +9,27 @@ import (
 
 // NewFSM returns new FSM implementation based on initial state
 func NewFSM(initialState int64, log *zap.Logger) *Fsm {
-	return &Fsm{
-		log:          log,
-		currentState: &initialState,
-	}
+	f := &Fsm{log: log}
+	f.currentState.Store(initialState)
+	return f
 }
 
 // Fsm is general https://en.wikipedia.org/wiki/Finite-state_machine to transition between worker states
 type Fsm struct {
 	log      *zap.Logger
-	numExecs uint64
+	numExecs atomic.Uint64
 	// to be lightweight, use UnixNano
-	lastUsed     uint64
-	currentState *int64
+	lastUsed     atomic.Uint64
+	currentState atomic.Int64
 }
 
 // CurrentState (see interface)
 func (s *Fsm) CurrentState() int64 {
-	return atomic.LoadInt64(s.currentState)
+	return s.currentState.Load()
 }
 
 func (s *Fsm) Compare(state int64) bool {
-	return atomic.LoadInt64(s.currentState) == state
+	return s.currentState.Load() == state
 }
 
 /*
@@ -43,12 +42,12 @@ func (s *Fsm) Transition(to int64) {
 		return
 	}
 
-	atomic.StoreInt64(s.currentState, to)
+	s.currentState.Store(to)
 }
 
 // String returns current StateImpl as string.
 func (s *Fsm) String() string {
-	switch atomic.LoadInt64(s.currentState) {
+	switch s.currentState.Load() {
 	case StateInactive:
 		return "inactive"
 	case StateReady:
@@ -73,34 +72,34 @@ func (s *Fsm) String() string {
 		return "ttlReached"
 	case StateMaxMemoryReached:
 		return "maxMemoryReached"
+	default:
+		return "undefined"
 	}
-
-	return "undefined"
 }
 
 // NumExecs returns number of registered WorkerProcess execs.
 func (s *Fsm) NumExecs() uint64 {
-	return atomic.LoadUint64(&s.numExecs)
+	return s.numExecs.Load()
 }
 
 // IsActive returns true if WorkerProcess not Inactive or Stopped
 func (s *Fsm) IsActive() bool {
-	return atomic.LoadInt64(s.currentState) == StateWorking ||
-		atomic.LoadInt64(s.currentState) == StateReady
+	return s.currentState.Load() == StateWorking ||
+		s.currentState.Load() == StateReady
 }
 
 // RegisterExec register new execution atomically
 func (s *Fsm) RegisterExec() {
-	atomic.AddUint64(&s.numExecs, 1)
+	s.numExecs.Add(1)
 }
 
 // SetLastUsed Update last used time
 func (s *Fsm) SetLastUsed(lu uint64) {
-	atomic.StoreUint64(&s.lastUsed, lu)
+	s.lastUsed.Store(lu)
 }
 
 func (s *Fsm) LastUsed() uint64 {
-	return atomic.LoadUint64(&s.lastUsed)
+	return s.lastUsed.Load()
 }
 
 // Acceptors (also called detectors or recognizers) produce binary output,
@@ -113,23 +112,24 @@ func (s *Fsm) recognizer(to int64) error {
 	case StateInactive:
 		// from
 		// No-one can transition to Inactive
-		if atomic.LoadInt64(s.currentState) == StateDestroyed {
+		if s.currentState.Load() == StateDestroyed {
 			return errors.E(op, errors.Errorf("can't transition from state: %s", s.String()))
 		}
 	// to from StateWorking/StateInactive only
 	case StateReady:
 		// from
-		switch atomic.LoadInt64(s.currentState) {
+		switch s.currentState.Load() {
 		case StateWorking, StateInactive:
 			return nil
+		default:
+			return errors.E(op, errors.Errorf("can't transition from state: %s", s.String()))
 		}
 
-		return errors.E(op, errors.Errorf("can't transition from state: %s", s.String()))
 	// to
 	case StateWorking:
 		// from
 		// StateWorking can be transitioned only from StateReady
-		if atomic.LoadInt64(s.currentState) == StateReady {
+		if s.currentState.Load() == StateReady {
 			return nil
 		}
 
@@ -146,7 +146,7 @@ func (s *Fsm) recognizer(to int64) error {
 		StateMaxMemoryReached,
 		StateExecTTLReached:
 		// from
-		if atomic.LoadInt64(s.currentState) == StateDestroyed {
+		if s.currentState.Load() == StateDestroyed {
 			return errors.E(op, errors.Errorf("can't transition from state: %s", s.String()))
 		}
 	// to

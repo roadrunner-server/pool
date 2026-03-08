@@ -14,17 +14,15 @@ import (
 type Vec struct {
 	rwm sync.RWMutex
 	// destroy signal
-	destroy uint64
+	destroy atomic.Bool
 	// reset signal
-	reset uint64
+	reset atomic.Bool
 	// channel with the workers
 	workers chan *worker.Process
 }
 
 func NewVector() *Vec {
 	vec := &Vec{
-		destroy: 0,
-		reset:   0,
 		// currently, we can have up to 2048 workers in the pool
 		workers: make(chan *worker.Process, 2048),
 	}
@@ -53,12 +51,12 @@ func (v *Vec) Len() int {
 
 func (v *Vec) Pop(ctx context.Context) (*worker.Process, error) {
 	// remove all workers and return
-	if atomic.LoadUint64(&v.destroy) == 1 {
+	if v.destroy.Load() {
 		return nil, errors.E(errors.WatcherStopped)
 	}
 
 	// wait for the reset to complete
-	for atomic.CompareAndSwapUint64(&v.reset, 1, 1) {
+	for v.reset.Load() {
 		select {
 		case <-ctx.Done():
 		default:
@@ -79,15 +77,15 @@ func (v *Vec) Pop(ctx context.Context) (*worker.Process, error) {
 }
 
 func (v *Vec) ResetDone() {
-	atomic.StoreUint64(&v.reset, 0)
+	v.reset.Store(false)
 }
 
 func (v *Vec) Reset() {
-	atomic.StoreUint64(&v.reset, 1)
+	v.reset.Store(true)
 }
 
 func (v *Vec) Destroy() {
-	atomic.StoreUint64(&v.destroy, 1)
+	v.destroy.Store(true)
 }
 
 func (v *Vec) Remove() {

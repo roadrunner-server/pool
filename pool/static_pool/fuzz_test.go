@@ -1,7 +1,6 @@
 package static_pool
 
 import (
-	"context"
 	"os/exec"
 	"testing"
 
@@ -13,9 +12,8 @@ import (
 func FuzzStaticPoolEcho(f *testing.F) {
 	f.Add([]byte("hello"))
 
-	ctx := context.Background()
 	p, err := NewPool(
-		ctx,
+		f.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
 		pipe.NewPipeFactory(log()),
 		testCfg,
@@ -31,7 +29,7 @@ func FuzzStaticPoolEcho(f *testing.F) {
 			data = []byte("1")
 		}
 
-		respCh, err := p.Exec(ctx, &payload.Payload{Body: data}, sc)
+		respCh, err := p.Exec(t.Context(), &payload.Payload{Body: data}, sc)
 		assert.NoError(t, err)
 		res := <-respCh
 		assert.NotNil(t, res)
@@ -40,6 +38,5 @@ func FuzzStaticPoolEcho(f *testing.F) {
 
 		assert.Equal(t, data, res.Body())
 	})
-
-	p.Destroy(ctx)
+	f.Cleanup(func() { p.Destroy(f.Context()) })
 }

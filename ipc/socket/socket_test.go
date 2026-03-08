@@ -15,7 +15,7 @@ import (
 )
 
 func Test_Tcp_Start(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	time.Sleep(time.Millisecond * 10) // to ensure free socket
 
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")
@@ -48,7 +48,7 @@ func Test_Tcp_Start(t *testing.T) {
 
 func Test_Tcp_StartCloseFactory(t *testing.T) {
 	time.Sleep(time.Millisecond * 10) // to ensure free socket
-	ctx := context.Background()
+	ctx := t.Context()
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")
 	if assert.NoError(t, err) {
 	} else {
@@ -80,7 +80,7 @@ func Test_Tcp_StartCloseFactory(t *testing.T) {
 
 func Test_Tcp_StartError(t *testing.T) {
 	time.Sleep(time.Millisecond * 10) // to ensure free socket
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*15)
 	defer cancel()
 
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")
@@ -110,7 +110,7 @@ func Test_Tcp_StartError(t *testing.T) {
 
 func Test_Tcp_Failboot(t *testing.T) {
 	time.Sleep(time.Millisecond * 10) // to ensure free socket
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*20)
 	defer cancel()
 
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")
@@ -134,7 +134,7 @@ func Test_Tcp_Failboot(t *testing.T) {
 
 func Test_Tcp_Timeout(t *testing.T) {
 	time.Sleep(time.Millisecond * 10) // to ensure free socket
-	ctx, cancel := context.WithTimeout(context.Background(), time.Microsecond)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Microsecond)
 	defer cancel()
 
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")
@@ -159,7 +159,7 @@ func Test_Tcp_Timeout(t *testing.T) {
 
 func Test_Tcp_Invalid(t *testing.T) {
 	time.Sleep(time.Millisecond * 10) // to ensure free socket
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")
 	if assert.NoError(t, err) {
@@ -182,7 +182,7 @@ func Test_Tcp_Invalid(t *testing.T) {
 
 func Test_Tcp_Broken(t *testing.T) {
 	time.Sleep(time.Millisecond * 10) // to ensure free socket
-	ctx := context.Background()
+	ctx := t.Context()
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")
 	if assert.NoError(t, err) {
 		defer func() {
@@ -202,14 +202,12 @@ func Test_Tcp_Broken(t *testing.T) {
 		t.Fatal(err)
 	}
 	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		errW := w.Wait()
 		assert.Error(t, errW)
-	}()
+	})
 
-	res, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	res, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 	assert.Error(t, err)
 	assert.Nil(t, res)
 	wg.Wait()
@@ -223,7 +221,7 @@ func Test_Tcp_Broken(t *testing.T) {
 
 func Test_Tcp_Echo(t *testing.T) {
 	time.Sleep(time.Millisecond * 10) // to ensure free socket
-	ctx := context.Background()
+	ctx := t.Context()
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")
 	if assert.NoError(t, err) {
 		defer func() {
@@ -249,7 +247,7 @@ func Test_Tcp_Echo(t *testing.T) {
 		}
 	}()
 
-	res, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	res, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
@@ -260,7 +258,7 @@ func Test_Tcp_Echo(t *testing.T) {
 }
 
 func Test_Unix_Start(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	ls, err := net.Listen("unix", "sock.unix")
 	if err == nil {
 		defer func() {
@@ -302,7 +300,7 @@ func Test_Unix_Failboot(t *testing.T) {
 		t.Skip("socket is busy")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*5)
 	defer cancel()
 
 	cmd := exec.Command("php", "../../tests/failboot.php")
@@ -326,7 +324,7 @@ func Test_Unix_Timeout(t *testing.T) {
 	}
 
 	cmd := exec.Command("php", "../../tests/slow-client.php", "echo", "unix", "200", "0")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond*100)
 	defer cancel()
 
 	w, err := NewSocketServer(ls, log).SpawnWorkerWithContext(ctx, cmd)
@@ -349,7 +347,7 @@ func Test_Unix_Invalid(t *testing.T) {
 	}
 
 	cmd := exec.Command("php", "../../tests/invalid.php")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*10)
 	defer cancel()
 
 	w, err := NewSocketServer(ls, log).SpawnWorkerWithContext(ctx, cmd)
@@ -358,7 +356,7 @@ func Test_Unix_Invalid(t *testing.T) {
 }
 
 func Test_Unix_Broken(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	ls, err := net.Listen("unix", "sock.unix")
 	if err == nil {
 		defer func() {
@@ -377,14 +375,12 @@ func Test_Unix_Broken(t *testing.T) {
 		t.Fatal(err)
 	}
 	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		errW := w.Wait()
 		assert.Error(t, errW)
-	}()
+	})
 
-	res, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	res, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 
 	assert.Error(t, err)
 	assert.Nil(t, res)
@@ -397,7 +393,7 @@ func Test_Unix_Broken(t *testing.T) {
 }
 
 func Test_Unix_Echo(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	ls, err := net.Listen("unix", "sock.unix")
 	if err == nil {
 		defer func() {
@@ -426,7 +422,7 @@ func Test_Unix_Echo(t *testing.T) {
 		}
 	}()
 
-	res, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	res, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
@@ -437,7 +433,7 @@ func Test_Unix_Echo(t *testing.T) {
 }
 
 func Benchmark_Tcp_SpawnWorker_Stop(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")
 	if err == nil {
 		defer func() {
@@ -470,7 +466,7 @@ func Benchmark_Tcp_SpawnWorker_Stop(b *testing.B) {
 }
 
 func Benchmark_Tcp_Worker_ExecEcho(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")
 	if err == nil {
 		defer func() {
@@ -497,14 +493,14 @@ func Benchmark_Tcp_Worker_ExecEcho(b *testing.B) {
 	}()
 
 	for b.Loop() {
-		if _, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")}); err != nil {
+		if _, err := w.Exec(b.Context(), &payload.Payload{Body: []byte("hello")}); err != nil {
 			b.Fail()
 		}
 	}
 }
 
 func Benchmark_Unix_SpawnWorker_Stop(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	ls, err := net.Listen("unix", "sock.unix")
 	if err == nil {
 		defer func() {
@@ -533,7 +529,7 @@ func Benchmark_Unix_SpawnWorker_Stop(b *testing.B) {
 }
 
 func Benchmark_Unix_Worker_ExecEcho(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	ls, err := net.Listen("unix", "sock.unix")
 	if err == nil {
 		defer func() {
@@ -560,7 +556,7 @@ func Benchmark_Unix_Worker_ExecEcho(b *testing.B) {
 	}()
 
 	for b.Loop() {
-		if _, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")}); err != nil {
+		if _, err := w.Exec(b.Context(), &payload.Payload{Body: []byte("hello")}); err != nil {
 			b.Fail()
 		}
 	}

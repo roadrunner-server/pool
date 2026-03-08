@@ -17,7 +17,7 @@ import (
 
 func Test_GetState(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
@@ -38,17 +38,15 @@ func Test_GetState(t *testing.T) {
 
 func Test_Kill(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
 	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		assert.Error(t, w.Wait())
 		assert.Equal(t, fsm.StateErrored, w.State().CurrentState())
-	}()
+	})
 
 	assert.NoError(t, err)
 	assert.NotNil(t, w)
@@ -63,7 +61,7 @@ func Test_Kill(t *testing.T) {
 
 func Test_Pipe_Start(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
@@ -85,7 +83,7 @@ func Test_Pipe_StartError(t *testing.T) {
 		t.Errorf("error running the command: error %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*5)
 	defer cancel()
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
 	assert.Error(t, err)
@@ -100,7 +98,7 @@ func Test_Pipe_PipeError(t *testing.T) {
 		t.Errorf("error creating the STDIN pipe: error %v", err)
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
 	assert.Error(t, err)
 	assert.Nil(t, w)
@@ -115,7 +113,7 @@ func Test_Pipe_PipeError2(t *testing.T) {
 		t.Errorf("error creating the STDIN pipe: error %v", err)
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
 	assert.Error(t, err)
 	assert.Nil(t, w)
@@ -123,7 +121,7 @@ func Test_Pipe_PipeError2(t *testing.T) {
 
 func Test_Pipe_Failboot(t *testing.T) {
 	cmd := exec.Command("php", "../../tests/failboot.php")
-	ctx := context.Background()
+	ctx := t.Context()
 
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
 
@@ -134,7 +132,7 @@ func Test_Pipe_Failboot(t *testing.T) {
 func Test_Pipe_Invalid(t *testing.T) {
 	t.Parallel()
 	cmd := exec.Command("php", "../../tests/invalid.php")
-	ctx := context.Background()
+	ctx := t.Context()
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
 	assert.Error(t, err)
 	assert.Nil(t, w)
@@ -143,7 +141,7 @@ func Test_Pipe_Invalid(t *testing.T) {
 func Test_Pipe_Echo(t *testing.T) {
 	t.Parallel()
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
-	ctx := context.Background()
+	ctx := t.Context()
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +154,7 @@ func Test_Pipe_Echo(t *testing.T) {
 		}
 	}()
 
-	res, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	res, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
 	assert.NotNil(t, res.Body)
@@ -174,7 +172,7 @@ func Test_Pipe_Echo(t *testing.T) {
 func Test_Pipe_Broken(t *testing.T) {
 	t.Parallel()
 	cmd := exec.Command("php", "../../tests/client.php", "broken", "pipes")
-	ctx := context.Background()
+	ctx := t.Context()
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
 	require.NoError(t, err)
 	require.NotNil(t, w)
@@ -184,7 +182,7 @@ func Test_Pipe_Broken(t *testing.T) {
 		require.Error(t, errW)
 	}()
 
-	res, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	res, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 	assert.Error(t, err)
 	assert.Nil(t, res)
 
@@ -197,7 +195,7 @@ func Benchmark_Pipe_SpawnWorker_Stop(b *testing.B) {
 	f := NewPipeFactory(log)
 	for b.Loop() {
 		cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
-		w, _ := f.SpawnWorkerWithContext(context.Background(), cmd)
+		w, _ := f.SpawnWorkerWithContext(b.Context(), cmd)
 		go func() {
 			if w.Wait() != nil {
 				b.Fail()
@@ -214,7 +212,7 @@ func Benchmark_Pipe_SpawnWorker_Stop(b *testing.B) {
 func Benchmark_Pipe_Worker_ExecEcho(b *testing.B) {
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 
-	w, _ := NewPipeFactory(log).SpawnWorkerWithContext(context.Background(), cmd)
+	w, _ := NewPipeFactory(log).SpawnWorkerWithContext(b.Context(), cmd)
 
 	b.ReportAllocs()
 
@@ -232,7 +230,7 @@ func Benchmark_Pipe_Worker_ExecEcho(b *testing.B) {
 	}()
 
 	for b.Loop() {
-		if _, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")}); err != nil {
+		if _, err := w.Exec(b.Context(), &payload.Payload{Body: []byte("hello")}); err != nil {
 			b.Fail()
 		}
 	}
@@ -240,7 +238,7 @@ func Benchmark_Pipe_Worker_ExecEcho(b *testing.B) {
 
 func Benchmark_Pipe_Worker_ExecEchoWithoutContext(b *testing.B) {
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
-	ctx := context.Background()
+	ctx := b.Context()
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
 	if err != nil {
 		b.Fatal(err)
@@ -254,7 +252,7 @@ func Benchmark_Pipe_Worker_ExecEchoWithoutContext(b *testing.B) {
 	}()
 
 	for b.Loop() {
-		if _, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")}); err != nil {
+		if _, err := w.Exec(b.Context(), &payload.Payload{Body: []byte("hello")}); err != nil {
 			b.Fail()
 		}
 	}
@@ -262,7 +260,7 @@ func Benchmark_Pipe_Worker_ExecEchoWithoutContext(b *testing.B) {
 
 func Test_Echo(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
@@ -280,7 +278,7 @@ func Test_Echo(t *testing.T) {
 		}
 	}()
 
-	res, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	res, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 
 	assert.Nil(t, err)
 	assert.NotNil(t, res)
@@ -292,7 +290,7 @@ func Test_Echo(t *testing.T) {
 
 func Test_BadPayload(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 
 	w, _ := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
@@ -307,14 +305,14 @@ func Test_BadPayload(t *testing.T) {
 		}
 	}()
 
-	res, err := w.Exec(context.Background(), &payload.Payload{})
+	res, err := w.Exec(t.Context(), &payload.Payload{})
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
 }
 
 func Test_String(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 
 	w, _ := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
@@ -335,7 +333,7 @@ func Test_String(t *testing.T) {
 
 func Test_Echo_Slow(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	cmd := exec.Command("php", "../../tests/slow-client.php", "echo", "pipes", "10", "10")
 
 	w, _ := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
@@ -349,7 +347,7 @@ func Test_Echo_Slow(t *testing.T) {
 		}
 	}()
 
-	res, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	res, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 
 	assert.Nil(t, err)
 	assert.NotNil(t, res)
@@ -360,7 +358,7 @@ func Test_Echo_Slow(t *testing.T) {
 }
 
 func Test_Broken(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	cmd := exec.Command("php", "../../tests/client.php", "broken", "pipes")
 
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
@@ -368,7 +366,7 @@ func Test_Broken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	res, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 	assert.NotNil(t, err)
 	assert.Nil(t, res)
 
@@ -378,7 +376,7 @@ func Test_Broken(t *testing.T) {
 
 func Test_Error(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	cmd := exec.Command("php", "../../tests/client.php", "error", "pipes")
 
 	w, _ := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
@@ -393,7 +391,7 @@ func Test_Error(t *testing.T) {
 		}
 	}()
 
-	res, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	res, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 	assert.NotNil(t, err)
 	assert.Nil(t, res)
 
@@ -405,7 +403,7 @@ func Test_Error(t *testing.T) {
 
 func Test_NumExecs(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 
 	w, _ := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
@@ -419,21 +417,21 @@ func Test_NumExecs(t *testing.T) {
 		}
 	}()
 
-	_, err := w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	_, err := w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 	if err != nil {
 		t.Errorf("fail to execute payload: error %v", err)
 	}
 	w.State().Transition(fsm.StateReady)
 	assert.Equal(t, uint64(1), w.State().NumExecs())
 
-	_, err = w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	_, err = w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 	if err != nil {
 		t.Errorf("fail to execute payload: error %v", err)
 	}
 	assert.Equal(t, uint64(2), w.State().NumExecs())
 	w.State().Transition(fsm.StateReady)
 
-	_, err = w.Exec(context.Background(), &payload.Payload{Body: []byte("hello")})
+	_, err = w.Exec(t.Context(), &payload.Payload{Body: []byte("hello")})
 	if err != nil {
 		t.Errorf("fail to execute payload: error %v", err)
 	}
@@ -442,7 +440,7 @@ func Test_NumExecs(t *testing.T) {
 }
 func Benchmark_WorkerPipeTTL(b *testing.B) {
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
-	ctx := context.Background()
+	ctx := b.Context()
 
 	log, _ = zap.NewDevelopment()
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)

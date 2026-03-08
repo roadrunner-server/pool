@@ -36,6 +36,7 @@ type WorkerWatcher struct {
 
 	allocator       Allocator
 	allocateTimeout time.Duration
+	stopCh          chan struct{}
 }
 
 // NewSyncWorkerWatcher is a constructor for the Watcher
@@ -48,6 +49,7 @@ func NewSyncWorkerWatcher(allocator Allocator, log *zap.Logger, numWorkers uint6
 		allocateTimeout: allocateTimeout,
 		workers:         sync.Map{},
 		allocator:       allocator,
+		stopCh:          make(chan struct{}, 1),
 	}
 
 	// pass a ptr to the number of workers to avoid blocking in the TTL loop
@@ -182,8 +184,6 @@ func (ww *WorkerWatcher) Allocate() error {
 		for {
 			select {
 			case <-tt:
-				// reduce the number of workers
-				ww.numWorkers.Add(^uint64(0))
 				allocateFreq.Stop()
 				// timeout exceeds, worker can't be allocated
 				return errors.E(op, errors.WorkerAllocate, err)
@@ -199,6 +199,10 @@ func (ww *WorkerWatcher) Allocate() error {
 				// reallocated
 				allocateFreq.Stop()
 				goto done
+
+			case <-ww.stopCh:
+				allocateFreq.Stop()
+				return errors.E(op, errors.WatcherStopped)
 			}
 		}
 	}
@@ -215,6 +219,7 @@ done:
 	ww.workers.Store(sw.Pid(), sw)
 	// push the worker to the container
 	ww.Release(sw)
+
 	return nil
 }
 
@@ -323,6 +328,11 @@ func (ww *WorkerWatcher) Destroy(ctx context.Context) {
 	ww.mu.Lock()
 	// do not release new workers
 	ww.container.Destroy()
+	// stop allocation of new workers if any (idempotent — safe on repeated Destroy calls)
+	select {
+	case ww.stopCh <- struct{}{}:
+	default:
+	}
 	ww.mu.Unlock()
 
 	tt := time.NewTicker(time.Second * 1)
@@ -366,6 +376,7 @@ func (ww *WorkerWatcher) Destroy(ctx context.Context) {
 			return
 		case <-ctx.Done():
 			// kill workers
+			ww.log.Debug("destroy: context canceled", zap.Error(ctx.Err()))
 			ww.mu.Lock()
 			wg := &sync.WaitGroup{}
 			ww.workers.Range(func(key, value any) bool {
@@ -422,6 +433,12 @@ func (ww *WorkerWatcher) wait(w *worker.Process) {
 
 	err = ww.Allocate()
 	if err != nil {
+		// watcher is shutting down, no need to track the counter
+		if errors.Is(errors.WatcherStopped, err) {
+			return
+		}
+
+		ww.numWorkers.Add(^uint64(0)) // dead worker was not replaced
 		ww.log.Error("failed to allocate the worker", zap.String("internal_event_name", events.EventWorkerError.String()), zap.Error(err))
 		if ww.numWorkers.Load() == 0 {
 			panic("no workers available, can't run the application")

@@ -96,17 +96,15 @@ func TestRateLimiter_RaceCondition(t *testing.T) {
 	var successCount atomic.Int64
 	var wg sync.WaitGroup
 
-	wg.Add(numGoroutines)
 	for range numGoroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range iterations {
 				if rl.TryAcquire() {
 					successCount.Add(1)
 					rl.Release()
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
