@@ -303,3 +303,142 @@ func Test_DynamicPool_500W(t *testing.T) {
 	require.Len(t, p.Workers(), 1)
 	t.Cleanup(func() { p.Destroy(t.Context()) })
 }
+
+// Test_DynAllocator_100Workers verifies that the dynamic allocator can scale up to 100 dynamic workers
+// in batches of 20 (spawnRate) and then properly deallocate them all after the idle timeout.
+func Test_DynAllocator_100Workers(t *testing.T) {
+	cfg := &pool.Config{
+		NumWorkers:      5,
+		AllocateTimeout: time.Second,
+		DestroyTimeout:  time.Second * 30,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  100,
+			SpawnRate:   20,
+			IdleTimeout: time.Second * 3,
+		},
+	}
+
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/client.php", "delay", "pipes")
+		},
+		pipe.NewPipeFactory(dynlog()),
+		cfg,
+		dynlog(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	require.Len(t, p.Workers(), 5)
+
+	wg := &sync.WaitGroup{}
+	// Fire requests in waves to sustain pressure across rate limiter windows.
+	// Each wave saturates current workers; failed requests trigger addMoreWorkers (20 per call, rate-limited to 1/sec).
+	// Over 8 waves ≈ 8 seconds: up to 5 batches * 20 = 100 dynamic workers.
+	for wave := range 8 {
+		for range 60 {
+			wg.Go(func() {
+				// 5-second delay keeps workers busy long enough to create sustained pressure
+				r, erre := p.Exec(t.Context(), &payload.Payload{Body: []byte("5000"), Context: nil}, make(chan struct{}))
+				if erre != nil {
+					return
+				}
+				<-r
+			})
+		}
+		if wave < 7 {
+			time.Sleep(time.Second)
+		}
+	}
+
+	wg.Wait()
+
+	totalAfterLoad := len(p.Workers())
+	dynAfterLoad := p.NumDynamic()
+	t.Log("workers after load:", totalAfterLoad, "dynamic:", dynAfterLoad)
+	assert.Greater(t, dynAfterLoad, uint64(0), "dynamic allocation should have occurred")
+
+	// Wait for idle timeout (3s) + deallocation cycles.
+	// With 100 dynamic workers and SpawnRate=20: 5 deallocation batches, each triggered at IdleTimeout interval.
+	// 5 batches * 3s = 15s + extra buffer.
+	time.Sleep(time.Second * 30)
+
+	assert.Equal(t, uint64(0), p.NumDynamic(), "all dynamic workers should be deallocated")
+	assert.Len(t, p.Workers(), 5, "should return to base worker count")
+	p.Destroy(t.Context())
+}
+
+// Test_DynAllocator_ReallocationCycle verifies that after all dynamic workers are deallocated
+// (idle TTL listener exits, started=false), a new pressure spike correctly restarts the listener
+// and allocates workers again. This tests the full listener lifecycle: start → deallocate → stop → restart.
+func Test_DynAllocator_ReallocationCycle(t *testing.T) {
+	cfg := &pool.Config{
+		NumWorkers:      2,
+		AllocateTimeout: time.Second,
+		DestroyTimeout:  time.Second * 20,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  10,
+			SpawnRate:   5,
+			IdleTimeout: time.Second * 2,
+		},
+	}
+
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/client.php", "delay", "pipes")
+		},
+		pipe.NewPipeFactory(dynlog()),
+		cfg,
+		dynlog(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	require.Len(t, p.Workers(), 2)
+
+	// === Cycle 1: Trigger allocation, then wait for full deallocation ===
+	wg := &sync.WaitGroup{}
+	for range 30 {
+		wg.Go(func() {
+			r, erre := p.Exec(t.Context(), &payload.Payload{Body: []byte("3000"), Context: nil}, make(chan struct{}))
+			if erre != nil {
+				return
+			}
+			<-r
+		})
+	}
+	wg.Wait()
+
+	dyn1 := p.NumDynamic()
+	t.Log("cycle 1 - dynamic workers allocated:", dyn1)
+	assert.Greater(t, dyn1, uint64(0), "cycle 1: dynamic allocation should have occurred")
+
+	// Wait for full deallocation: idle timeout (2s) + deallocation batches (2 batches * 2s = 4s) + buffer
+	time.Sleep(time.Second * 10)
+
+	assert.Equal(t, uint64(0), p.NumDynamic(), "cycle 1: all dynamic workers should be deallocated")
+	assert.Len(t, p.Workers(), 2, "cycle 1: should return to base count")
+
+	// === Cycle 2: Re-trigger allocation (listener must restart from started=false) ===
+	for range 30 {
+		wg.Go(func() {
+			r, erre := p.Exec(t.Context(), &payload.Payload{Body: []byte("3000"), Context: nil}, make(chan struct{}))
+			if erre != nil {
+				return
+			}
+			<-r
+		})
+	}
+	wg.Wait()
+
+	dyn2 := p.NumDynamic()
+	t.Log("cycle 2 - dynamic workers allocated:", dyn2)
+	assert.Greater(t, dyn2, uint64(0), "cycle 2: dynamic allocation should have occurred (listener restarted)")
+
+	// Wait for full deallocation again
+	time.Sleep(time.Second * 10)
+
+	assert.Equal(t, uint64(0), p.NumDynamic(), "cycle 2: all dynamic workers should be deallocated")
+	assert.Len(t, p.Workers(), 2, "cycle 2: should return to base count after re-allocation")
+	p.Destroy(t.Context())
+}
