@@ -1,6 +1,6 @@
 package static_pool
 
-import "github.com/roadrunner-server/pool/payload"
+import "github.com/roadrunner-server/pool/v2/payload"
 
 type PExec struct {
 	pld *payload.Payload

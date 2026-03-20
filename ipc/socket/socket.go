@@ -8,14 +8,15 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	"github.com/roadrunner-server/errors"
-	"github.com/roadrunner-server/goridge/v3/pkg/relay"
-	"github.com/roadrunner-server/goridge/v3/pkg/socket"
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/internal"
-	"github.com/roadrunner-server/pool/worker"
+	"github.com/roadrunner-server/goridge/v4/pkg/relay"
+	"github.com/roadrunner-server/goridge/v4/pkg/socket"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/internal"
+	"github.com/roadrunner-server/pool/v2/worker"
 	"github.com/shirou/gopsutil/process"
-	"go.uber.org/zap"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -26,11 +27,11 @@ type Factory struct {
 	ls net.Listener
 	// sockets which are waiting for process association
 	relays sync.Map
-	log    *zap.Logger
+	log    *slog.Logger
 }
 
 // NewSocketServer returns Factory attached to a given socket listener.
-func NewSocketServer(ls net.Listener, log *zap.Logger) *Factory {
+func NewSocketServer(ls net.Listener, log *slog.Logger) *Factory {
 	f := &Factory{
 		ls:  ls,
 		log: log,
@@ -50,7 +51,7 @@ func NewSocketServer(ls net.Listener, log *zap.Logger) *Factory {
 				}
 			}
 
-			log.Warn("socket server listen", zap.Error(err))
+			log.Warn("socket server listen", "error", err)
 		}
 	}()
 
@@ -163,26 +164,26 @@ func (f *Factory) Close() error {
 	return f.ls.Close()
 }
 
-// waits for Process to connect over socket and returns associated relay of timeout
+// waits for Process to connect over socket and returns associated relay or timeout
 func (f *Factory) findRelayWithContext(ctx context.Context, w *worker.Process) (*socket.Relay, error) {
 	ticker := time.NewTicker(time.Millisecond * 10)
+	defer ticker.Stop()
 	for {
+		// fast path: check relay map immediately
+		rl, ok := f.relays.LoadAndDelete(w.Pid())
+		if ok {
+			return rl.(*socket.Relay), nil
+		}
+
 		select {
 		case <-ctx.Done():
 			return nil, errors.E(errors.Op("findRelayWithContext"), errors.TimeOut)
 		case <-ticker.C:
-			// check for the process exists
+			// check if process still exists
 			_, err := process.NewProcess(int32(w.Pid())) //nolint:gosec
 			if err != nil {
 				return nil, err
 			}
-		default:
-			rl, ok := f.relays.LoadAndDelete(w.Pid())
-			if !ok {
-				continue
-			}
-
-			return rl.(*socket.Relay), nil
 		}
 	}
 }

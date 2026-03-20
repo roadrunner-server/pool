@@ -7,15 +7,16 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"log/slog"
+
 	"github.com/roadrunner-server/errors"
 	"github.com/roadrunner-server/events"
-	"github.com/roadrunner-server/goridge/v3/pkg/frame"
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/payload"
-	"github.com/roadrunner-server/pool/pool"
-	"github.com/roadrunner-server/pool/worker"
-	workerWatcher "github.com/roadrunner-server/pool/worker_watcher"
-	"go.uber.org/zap"
+	"github.com/roadrunner-server/goridge/v4/pkg/frame"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/payload"
+	"github.com/roadrunner-server/pool/v2/pool"
+	"github.com/roadrunner-server/pool/v2/worker"
+	workerWatcher "github.com/roadrunner-server/pool/v2/worker_watcher"
 )
 
 const (
@@ -28,7 +29,7 @@ type Pool struct {
 	// pool configuration
 	cfg *pool.Config
 	// logger
-	log *zap.Logger
+	log *slog.Logger
 	// worker command creator
 	cmd pool.Command
 	// creates and connects to workers
@@ -49,7 +50,7 @@ type Pool struct {
 }
 
 // NewPool creates a new worker pool and task multiplexer. Pool will initialize with the configured number of workers. If supervisor configuration is provided -> pool will be turned into a supervisedExec mode
-func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *pool.Config, log *zap.Logger, options ...Options) (*Pool, error) {
+func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *pool.Config, log *slog.Logger, options ...Options) (*Pool, error) {
 	if factory == nil {
 		return nil, errors.Str("no factory initialized")
 	}
@@ -86,11 +87,7 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 	}
 
 	if p.log == nil {
-		var err error
-		p.log, err = zap.NewDevelopment()
-		if err != nil {
-			return nil, err
-		}
+		p.log = slog.Default()
 	}
 
 	// set up workers' allocator
@@ -213,7 +210,7 @@ begin:
 	}
 
 	if w.MaxExecsReached() {
-		sp.log.Debug("requests execution limit reached, worker will be restarted", zap.Int64("pid", w.Pid()), zap.Uint64("execs", w.State().NumExecs()))
+		sp.log.Debug("requests execution limit reached, worker will be restarted", "pid", w.Pid(), "execs", w.State().NumExecs())
 		w.State().Transition(fsm.StateMaxJobsReached)
 	}
 
@@ -222,7 +219,7 @@ begin:
 		switch {
 		case errors.Is(errors.ExecTTL, err):
 			// in this case, the worker already killed in the ExecTTL function
-			sp.log.Warn("worker stopped, and will be restarted", zap.String("reason", "execTTL timeout elapsed"), zap.Int64("pid", w.Pid()), zap.String("internal_event_name", events.EventExecTTL.String()), zap.Error(err))
+			sp.log.Warn("worker stopped, and will be restarted", "reason", "execTTL timeout elapsed", "pid", w.Pid(), "internal_event_name", events.EventExecTTL.String(), "error", err)
 			w.State().Transition(fsm.StateExecTTLReached)
 
 			// worker should already be reallocated
@@ -232,14 +229,14 @@ begin:
 				in case of soft job error, we should not kill the worker; this is just an error payload from the worker.
 			*/
 			w.State().Transition(fsm.StateReady)
-			sp.log.Warn("soft worker error", zap.String("reason", "SoftJob"), zap.Int64("pid", w.Pid()), zap.String("internal_event_name", events.EventWorkerSoftError.String()), zap.Error(err))
+			sp.log.Warn("soft worker error", "reason", "SoftJob", "pid", w.Pid(), "internal_event_name", events.EventWorkerSoftError.String(), "error", err)
 			sp.ww.Release(w)
 
 			return nil, err
 		case errors.Is(errors.Network, err):
 			// in case of network error, we can't stop the worker, we should kill it
 			w.State().Transition(fsm.StateErrored)
-			sp.log.Warn("RoadRunner can't communicate with the worker", zap.String("reason", "worker hung or process was killed"), zap.Int64("pid", w.Pid()), zap.String("internal_event_name", events.EventWorkerError.String()), zap.Error(err))
+			sp.log.Warn("RoadRunner can't communicate with the worker", "reason", "worker hung or process was killed", "pid", w.Pid(), "internal_event_name", events.EventWorkerError.String(), "error", err)
 			// kill the worker instead of sending a net packet to it
 			_ = w.Kill()
 
@@ -252,7 +249,7 @@ begin:
 
 		default:
 			w.State().Transition(fsm.StateErrored)
-			sp.log.Warn("worker will be restarted", zap.Int64("pid", w.Pid()), zap.String("internal_event_name", events.EventWorkerDestruct.String()), zap.Error(err))
+			sp.log.Warn("worker will be restarted", "pid", w.Pid(), "internal_event_name", events.EventWorkerDestruct.String(), "error", err)
 
 			sp.ww.Release(w)
 			return nil, err
@@ -269,7 +266,7 @@ begin:
 
 	switch {
 	case rsp.Flags&frame.STREAM != 0:
-		sp.log.Debug("stream mode", zap.Int64("pid", w.Pid()))
+		sp.log.Debug("stream mode", "pid", w.Pid())
 		// create a channel for the stream (only if there are no errors)
 		// we need to create a buffered channel to prevent blocking
 		// stream buffer size should be bigger than regular, to have some payloads ready (optimization)
@@ -281,7 +278,7 @@ begin:
 		go func() { //nolint:gosec // G118 - intentional: per-iteration exec timeout must be independent of request context
 			// would be called on Goexit
 			defer func() {
-				sp.log.Debug("release [stream] worker", zap.Int("pid", int(w.Pid())), zap.String("state", w.State().String()))
+				sp.log.Debug("release [stream] worker", "pid", w.Pid(), "state", w.State().String())
 				close(resp)
 				sp.ww.Release(w)
 			}()
@@ -291,17 +288,17 @@ begin:
 				select {
 				// we received a stop signal
 				case <-stopCh:
-					sp.log.Debug("stream stop signal received", zap.Int("pid", int(w.Pid())), zap.String("state", w.State().String()))
+					sp.log.Debug("stream stop signal received", "pid", w.Pid(), "state", w.State().String())
 					ctxT, cancelT := context.WithTimeout(ctx, sp.cfg.StreamTimeout)
 					err = w.StreamCancel(ctxT)
 					cancelT()
 					if err != nil {
 						w.State().Transition(fsm.StateErrored)
-						sp.log.Warn("stream cancel error", zap.Error(err))
+						sp.log.Warn("stream cancel error", "error", err)
 					} else {
 						// successfully canceled
 						w.State().Transition(fsm.StateReady)
-						sp.log.Debug("transition to the ready state", zap.String("from", w.State().String()))
+						sp.log.Debug("transition to the ready state", "from", w.State().String())
 					}
 
 					runtime.Goexit()
@@ -313,7 +310,7 @@ begin:
 						pld, next, errI := w.StreamIterWithContext(ctxT)
 						cancelT()
 						if errI != nil {
-							sp.log.Warn("stream error", zap.Error(err))
+							sp.log.Warn("stream error", "error", errI)
 
 							resp <- newPExec(nil, errI)
 
@@ -333,7 +330,7 @@ begin:
 						// non supervised execution, can potentially hang here
 						pld, next, errI := w.StreamIter()
 						if errI != nil {
-							sp.log.Warn("stream iter error", zap.Error(err))
+							sp.log.Warn("stream iter error", "error", errI)
 							// send error response
 							resp <- newPExec(nil, errI)
 
@@ -359,7 +356,7 @@ begin:
 		resp := make(chan *PExec, 1)
 		// send the initial frame
 		resp <- newPExec(rsp, nil)
-		sp.log.Debug("req-resp mode", zap.Int64("pid", w.Pid()))
+		sp.log.Debug("req-resp mode", "pid", w.Pid())
 		if w.State().Compare(fsm.StateWorking) {
 			w.State().Transition(fsm.StateReady)
 		}
@@ -385,7 +382,7 @@ func (sp *Pool) NumDynamic() uint64 {
 
 // Destroy all underlying workers (but let them complete the task).
 func (sp *Pool) Destroy(ctx context.Context) {
-	sp.log.Info("destroy signal received", zap.Duration("timeout", sp.cfg.DestroyTimeout))
+	sp.log.Info("destroy signal received", "timeout", sp.cfg.DestroyTimeout)
 	var cancel context.CancelFunc
 	_, ok := ctx.Deadline()
 	if !ok {
@@ -425,9 +422,9 @@ func (sp *Pool) takeWorker(ctxGetFree context.Context, op errors.Op) (*worker.Pr
 		if errors.Is(errors.NoFreeWorkers, err) {
 			sp.log.Error(
 				"no free workers in the pool, wait timeout exceed",
-				zap.String("reason", "no free workers"),
-				zap.String("internal_event_name", events.EventNoFreeWorkers.String()),
-				zap.Error(err),
+				"reason", "no free workers",
+				"internal_event_name", events.EventNoFreeWorkers.String(),
+				"error", err,
 			)
 
 			// if we don't have a dynamic allocator or in debug mode, we can't allocate a new worker

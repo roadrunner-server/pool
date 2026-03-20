@@ -6,6 +6,7 @@ import (
 	stderr "errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -15,19 +16,18 @@ import (
 	"time"
 
 	"github.com/roadrunner-server/errors"
-	"github.com/roadrunner-server/goridge/v3/pkg/frame"
-	"github.com/roadrunner-server/goridge/v3/pkg/relay"
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/internal"
-	"github.com/roadrunner-server/pool/payload"
-	"go.uber.org/zap"
+	"github.com/roadrunner-server/goridge/v4/pkg/frame"
+	"github.com/roadrunner-server/goridge/v4/pkg/relay"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/internal"
+	"github.com/roadrunner-server/pool/v2/payload"
 )
 
 // Process - supervised process with api over goridge.Relay.
 type Process struct {
 	// created indicates at what time Process has been created.
 	created time.Time
-	log     *zap.Logger
+	log     *slog.Logger
 
 	// calculated maximum value with jitter
 	maxExecs uint64
@@ -98,12 +98,7 @@ func InitBaseWorker(cmd *exec.Cmd, options ...Options) (*Process, error) {
 	}
 
 	if w.log == nil {
-		z, err := zap.NewProduction()
-		if err != nil {
-			return nil, err
-		}
-
-		w.log = z
+		w.log = slog.Default()
 	}
 
 	w.fsm = fsm.NewFSM(fsm.StateInactive, w.log)
@@ -120,7 +115,7 @@ func InitBaseWorker(cmd *exec.Cmd, options ...Options) (*Process, error) {
 		buf := make([]byte, 65536)
 		errCopy := copyBuffer(w, rc, buf)
 		if errCopy != nil {
-			w.log.Debug("stderr", zap.Error(errCopy))
+			w.log.Debug("stderr", "error", errCopy)
 		}
 	}()
 
@@ -255,7 +250,7 @@ func (w *Process) StreamIterWithContext(ctx context.Context) (*payload.Payload, 
 				err: err,
 			}
 
-			w.log.Debug("stream iter error", zap.Int64("pid", w.Pid()), zap.Error(err))
+			w.log.Debug("stream iter error", "pid", w.Pid(), "error", err)
 			// trash response
 			rsp = nil
 			runtime.Goexit()
@@ -304,7 +299,7 @@ func (w *Process) StreamCancel(ctx context.Context) error {
 		return errors.Errorf("worker is not in the Working state, actual state: (%s)", w.State().String())
 	}
 
-	w.log.Debug("stream was canceled, sending stop bit", zap.Int64("pid", w.Pid()))
+	w.log.Debug("stream was canceled, sending stop bit", "pid", w.Pid())
 	// get a frame
 	fr := w.getFrame()
 
@@ -323,7 +318,7 @@ func (w *Process) StreamCancel(ctx context.Context) error {
 	w.putFrame(fr)
 	c := w.getCh()
 
-	w.log.Debug("stop bit was sent, waiting for the response", zap.Int64("pid", w.Pid()))
+	w.log.Debug("stop bit was sent, waiting for the response", "pid", w.Pid())
 
 	go func() {
 		for {
@@ -333,7 +328,7 @@ func (w *Process) StreamCancel(ctx context.Context) error {
 					err: errrf,
 				}
 
-				w.log.Debug("stream cancel error", zap.Int64("pid", w.Pid()), zap.Error(errrf))
+				w.log.Debug("stream cancel error", "pid", w.Pid(), "error", errrf)
 				// trash response
 				rsp = nil
 				runtime.Goexit()
@@ -341,7 +336,7 @@ func (w *Process) StreamCancel(ctx context.Context) error {
 
 			// stream has ended
 			if rsp.Flags&frame.STREAM == 0 {
-				w.log.Debug("stream has ended", zap.Int64("pid", w.Pid()))
+				w.log.Debug("stream has ended", "pid", w.Pid())
 				c <- &wexec{}
 				// trash response
 				rsp = nil
@@ -435,7 +430,7 @@ func (w *Process) Stop() error {
 	w.fsm.Transition(fsm.StateStopping)
 
 	go func() {
-		w.log.Debug("sending stop request to the worker", zap.Int("pid", w.pid))
+		w.log.Debug("sending stop request to the worker", "pid", w.pid)
 		err := internal.SendControl(w.relay, &internal.StopCommand{Stop: true})
 		if err == nil {
 			w.fsm.Transition(fsm.StateStopped)
@@ -447,11 +442,11 @@ func (w *Process) Stop() error {
 	// If we successfully sent a stop request, Wait() method will send a struct{} to the doneCh and we're done here
 	// otherwise we have 10 seconds before we kill the process
 	case <-w.doneCh:
-		w.log.Debug("worker stopped", zap.Int("pid", w.pid))
+		w.log.Debug("worker stopped", "pid", w.pid)
 		return nil
 	case <-time.After(time.Second * 10):
 		// kill process
-		w.log.Warn("worker doesn't respond on stop command, killing process", zap.Int64("PID", w.Pid()))
+		w.log.Warn("worker doesn't respond on stop command, killing process", "pid", w.Pid())
 		_ = w.cmd.Process.Signal(os.Kill)
 		w.fsm.Transition(fsm.StateStopped)
 		return errors.E(op, errors.Network)

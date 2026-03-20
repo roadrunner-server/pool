@@ -1,11 +1,12 @@
 package static_pool
 
 import (
+	"log/slog"
 	"os/exec"
 	"testing"
 
-	"github.com/roadrunner-server/pool/ipc/pipe"
-	"github.com/roadrunner-server/pool/payload"
+	"github.com/roadrunner-server/pool/v2/ipc/pipe"
+	"github.com/roadrunner-server/pool/v2/payload"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,9 +16,9 @@ func FuzzStaticPoolEcho(f *testing.F) {
 	p, err := NewPool(
 		f.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		testCfg,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(f, err)
 	assert.NotNil(f, p)

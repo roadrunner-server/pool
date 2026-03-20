@@ -4,9 +4,8 @@ import (
 	"time"
 
 	"github.com/roadrunner-server/events"
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/state/process"
-	"go.uber.org/zap"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/state/process"
 )
 
 const (
@@ -98,7 +97,7 @@ func (sp *Pool) control() {
 				workers[i].State().Transition(fsm.StateInvalid)
 			}
 
-			sp.log.Debug("ttl", zap.String("reason", "ttl is reached"), zap.Int64("pid", workers[i].Pid()), zap.String("internal_event_name", events.EventTTL.String()))
+			sp.log.Debug("ttl", "reason", "ttl is reached", "pid", workers[i].Pid(), "internal_event_name", events.EventTTL.String())
 			continue
 		}
 
@@ -120,7 +119,7 @@ func (sp *Pool) control() {
 				workers[i].State().Transition(fsm.StateInvalid)
 			}
 
-			sp.log.Debug("memory_limit", zap.String("reason", "max memory is reached"), zap.Int64("pid", workers[i].Pid()), zap.String("internal_event_name", events.EventMaxMemory.String()))
+			sp.log.Debug("memory_limit", "reason", "max memory is reached", "pid", workers[i].Pid(), "internal_event_name", events.EventMaxMemory.String())
 			continue
 		}
 
@@ -170,7 +169,7 @@ func (sp *Pool) control() {
 				*/
 
 				workers[i].State().Transition(fsm.StateIdleTTLReached)
-				sp.log.Debug("idle_ttl", zap.String("reason", "idle ttl is reached"), zap.Int64("pid", workers[i].Pid()), zap.String("internal_event_name", events.EventTTL.String()))
+				sp.log.Debug("idle_ttl", "reason", "idle ttl is reached", "pid", workers[i].Pid(), "internal_event_name", events.EventTTL.String())
 			}
 		}
 	}

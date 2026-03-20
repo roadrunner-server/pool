@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/roadrunner-server/errors"
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/worker"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/worker"
 )
 
 type Vec struct {
@@ -59,6 +59,7 @@ func (v *Vec) Pop(ctx context.Context) (*worker.Process, error) {
 	for v.reset.Load() {
 		select {
 		case <-ctx.Done():
+			return nil, errors.E(ctx.Err(), errors.NoFreeWorkers)
 		default:
 			time.Sleep(time.Millisecond * 10)
 		}

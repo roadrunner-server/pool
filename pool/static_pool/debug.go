@@ -5,14 +5,12 @@ import (
 	"runtime"
 
 	"github.com/roadrunner-server/events"
-	"github.com/roadrunner-server/goridge/v3/pkg/frame"
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/payload"
-	"go.uber.org/zap"
+	"github.com/roadrunner-server/goridge/v4/pkg/frame"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/payload"
 )
 
 // execDebug used when debug mode was not set and exec_ttl is 0
-// TODO DRY
 func (sp *Pool) execDebug(ctx context.Context, p *payload.Payload, stopCh chan struct{}) (chan *PExec, error) {
 	sp.log.Debug("executing in debug mode, worker will be destroyed after response is received")
 	w, err := sp.allocator()
@@ -41,17 +39,17 @@ func (sp *Pool) execDebug(ctx context.Context, p *payload.Payload, stopCh chan s
 		go func() { //nolint:gosec // G118 - intentional: per-iteration exec timeout must be independent of request context
 			// would be called on Goexit
 			defer func() {
-				sp.log.Debug("stopping [stream] worker", zap.Int("pid", int(w.Pid())), zap.String("state", w.State().String()))
+				sp.log.Debug("stopping [stream] worker", "pid", w.Pid(), "state", w.State().String())
 				close(resp)
 				// destroy the worker
 				errD := w.Stop()
 				if errD != nil {
 					sp.log.Debug(
 						"debug mode: worker stopped with error",
-						zap.String("reason", "worker error"),
-						zap.Int64("pid", w.Pid()),
-						zap.String("internal_event_name", events.EventWorkerError.String()),
-						zap.Error(errD),
+						"reason", "worker error",
+						"pid", w.Pid(),
+						"internal_event_name", events.EventWorkerError.String(),
+						"error", errD,
 					)
 				}
 			}()
@@ -61,17 +59,17 @@ func (sp *Pool) execDebug(ctx context.Context, p *payload.Payload, stopCh chan s
 				select {
 				// we received stop signal
 				case <-stopCh:
-					sp.log.Debug("stream stop signal received", zap.Int("pid", int(w.Pid())), zap.String("state", w.State().String()))
+					sp.log.Debug("stream stop signal received", "pid", w.Pid(), "state", w.State().String())
 					ctxT, cancelT := context.WithTimeout(ctx, sp.cfg.StreamTimeout)
 					err = w.StreamCancel(ctxT)
 					cancelT()
 					if err != nil {
 						w.State().Transition(fsm.StateErrored)
-						sp.log.Warn("stream cancel error", zap.Error(err))
+						sp.log.Warn("stream cancel error", "error", err)
 					} else {
 						// successfully canceled
 						w.State().Transition(fsm.StateReady)
-						sp.log.Debug("transition to the ready state", zap.String("from", w.State().String()))
+						sp.log.Debug("transition to the ready state", "from", w.State().String())
 					}
 
 					runtime.Goexit()
@@ -83,7 +81,7 @@ func (sp *Pool) execDebug(ctx context.Context, p *payload.Payload, stopCh chan s
 						pld, next, errI := w.StreamIterWithContext(ctxT)
 						cancelT()
 						if errI != nil {
-							sp.log.Warn("stream error", zap.Error(err))
+							sp.log.Warn("stream error", "error", errI)
 
 							resp <- newPExec(nil, errI)
 
@@ -103,7 +101,7 @@ func (sp *Pool) execDebug(ctx context.Context, p *payload.Payload, stopCh chan s
 						// non supervised execution, can potentially hang here
 						pld, next, errI := w.StreamIter()
 						if errI != nil {
-							sp.log.Warn("stream iter error", zap.Error(err))
+							sp.log.Warn("stream iter error", "error", errI)
 							// send error response
 							resp <- newPExec(nil, errI)
 
@@ -135,10 +133,10 @@ func (sp *Pool) execDebug(ctx context.Context, p *payload.Payload, stopCh chan s
 		if errD != nil {
 			sp.log.Debug(
 				"debug mode: worker stopped with error",
-				zap.String("reason", "worker error"),
-				zap.Int64("pid", w.Pid()),
-				zap.String("internal_event_name", events.EventWorkerError.String()),
-				zap.Error(errD),
+				"reason", "worker error",
+				"pid", w.Pid(),
+				"internal_event_name", events.EventWorkerError.String(),
+				"error", errD,
 			)
 		}
 

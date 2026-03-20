@@ -6,18 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/roadrunner-server/pool/ipc/pipe"
-	"github.com/roadrunner-server/pool/payload"
-	"github.com/roadrunner-server/pool/pool"
+	"log/slog"
+
+	"github.com/roadrunner-server/pool/v2/ipc/pipe"
+	"github.com/roadrunner-server/pool/v2/payload"
+	"github.com/roadrunner-server/pool/v2/pool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
-
-var dynlog = func() *zap.Logger {
-	logger, _ := zap.NewDevelopment()
-	return logger
-}
 
 var testDynCfg = &pool.Config{
 	NumWorkers:      5,
@@ -34,9 +30,9 @@ func Test_DynAllocator(t *testing.T) {
 	np, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
-		pipe.NewPipeFactory(dynlog()),
+		pipe.NewPipeFactory(slog.Default()),
 		testDynCfg,
-		dynlog(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, np)
@@ -69,9 +65,9 @@ func Test_DynAllocatorManyReq(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/client.php", "slow_req", "pipes")
 		},
-		pipe.NewPipeFactory(dynlog()),
+		pipe.NewPipeFactory(slog.Default()),
 		testDynCfgMany,
-		dynlog(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, np)
@@ -123,9 +119,9 @@ func Test_DynamicPool_OverMax(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/worker-slow-dyn.php")
 		},
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		dynAllCfg,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
@@ -215,9 +211,9 @@ func Test_DynamicPool(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/worker-slow-dyn.php")
 		},
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		dynAllCfg,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, errp)
 	assert.NotNil(t, p)
@@ -268,9 +264,9 @@ func Test_DynamicPool_500W(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/worker-slow-dyn.php")
 		},
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		dynAllCfg,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
@@ -323,9 +319,9 @@ func Test_DynAllocator_100Workers(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/client.php", "delay", "pipes")
 		},
-		pipe.NewPipeFactory(dynlog()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfg,
-		dynlog(),
+		slog.Default(),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p)
@@ -388,9 +384,9 @@ func Test_DynAllocator_ReallocationCycle(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/client.php", "delay", "pipes")
 		},
-		pipe.NewPipeFactory(dynlog()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfg,
-		dynlog(),
+		slog.Default(),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p)
@@ -441,4 +437,171 @@ func Test_DynAllocator_ReallocationCycle(t *testing.T) {
 
 	assert.Equal(t, uint64(0), p.NumDynamic(), "cycle 2: all dynamic workers should be deallocated")
 	assert.Len(t, p.Workers(), 2, "cycle 2: should return to base count after re-allocation")
+}
+
+// ==================== Dynamic Allocator Edge Cases ====================
+
+// Test_DynAllocator_SpawnRate_CappedByMaxWorkers verifies that spawnRate doesn't exceed maxWorkers.
+// The `currAllocated >= maxWorkers` break in addMoreWorkers() spawn loop. Without it, over-allocation occurs.
+func Test_DynAllocator_SpawnRate_CappedByMaxWorkers(t *testing.T) {
+	cfg := &pool.Config{
+		NumWorkers:      1,
+		AllocateTimeout: time.Second * 5,
+		DestroyTimeout:  time.Second * 20,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  3,
+			SpawnRate:   10, // higher than maxWorkers
+			IdleTimeout: time.Second * 10,
+		},
+	}
+
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+		},
+		pipe.NewPipeFactory(slog.Default()),
+		cfg,
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	wg := &sync.WaitGroup{}
+	// Fire enough requests to trigger dynamic allocation
+	for range 20 {
+		wg.Go(func() {
+			r, erre := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
+			if erre != nil {
+				return
+			}
+			<-r
+		})
+	}
+
+	// Wait a bit for allocation to happen
+	time.Sleep(time.Second * 3)
+
+	// Dynamic workers should not exceed maxWorkers=3
+	dynCount := p.NumDynamic()
+	assert.LessOrEqual(t, dynCount, uint64(3),
+		"dynamic workers should not exceed maxWorkers, got %d", dynCount)
+
+	wg.Wait()
+}
+
+// Test_DynAllocator_CounterConsistency_AfterFailedRemoval verifies that currAllocated
+// doesn't decrement when RemoveWorker fails (all workers busy).
+// The break on removal failure in startIdleTTLListener() deallocation loop prevents counter desync.
+func Test_DynAllocator_CounterConsistency_AfterFailedRemoval(t *testing.T) {
+	cfg := &pool.Config{
+		NumWorkers:      1,
+		AllocateTimeout: time.Second * 5,
+		DestroyTimeout:  time.Second * 30,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  5,
+			SpawnRate:   5,
+			IdleTimeout: time.Second * 3,
+		},
+	}
+
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/client.php", "delay", "pipes")
+		},
+		pipe.NewPipeFactory(slog.Default()),
+		cfg,
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	wg := &sync.WaitGroup{}
+	// Fire requests to trigger dynamic allocation and keep workers busy
+	for range 20 {
+		wg.Go(func() {
+			// 3s delay keeps workers busy during deallocation attempt
+			r, erre := p.Exec(t.Context(), &payload.Payload{Body: []byte("3000")}, make(chan struct{}))
+			if erre != nil {
+				return
+			}
+			<-r
+		})
+	}
+
+	time.Sleep(time.Second * 2)
+
+	// Verify dynamic workers were allocated
+	dynBefore := p.NumDynamic()
+	t.Log("dynamic workers before deallocation:", dynBefore)
+
+	wg.Wait()
+
+	// After all requests complete, wait for deallocation
+	time.Sleep(time.Second * 10)
+
+	// Counter should eventually reach 0 (all dynamic workers deallocated)
+	assert.Equal(t, uint64(0), p.NumDynamic(),
+		"all dynamic workers should be deallocated after idle timeout")
+}
+
+// Test_DynAllocator_RateLimit_ThunderingHerd verifies that the rate limiter prevents
+// over-allocation under thundering herd conditions.
+// The TryAcquire() rate limiter at the top of addMoreWorkers() gates concurrent allocation. Without it, each pending request
+// could trigger a spawn batch.
+func Test_DynAllocator_RateLimit_ThunderingHerd(t *testing.T) {
+	cfg := &pool.Config{
+		NumWorkers:      1,
+		AllocateTimeout: time.Second * 5,
+		DestroyTimeout:  time.Second * 30,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  5,
+			SpawnRate:   5,
+			IdleTimeout: time.Second * 10,
+		},
+	}
+
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+		},
+		pipe.NewPipeFactory(slog.Default()),
+		cfg,
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	wg := &sync.WaitGroup{}
+	// Fire 50 simultaneous requests — thundering herd
+	for range 50 {
+		wg.Go(func() {
+			r, erre := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
+			if erre != nil {
+				return
+			}
+			<-r
+		})
+	}
+
+	// Wait for allocation attempts
+	time.Sleep(time.Second * 3)
+
+	// Dynamic workers should not exceed maxWorkers despite 50 concurrent requests
+	totalWorkers := len(p.Workers())
+	dynWorkers := p.NumDynamic()
+
+	t.Log("total workers:", totalWorkers, "dynamic:", dynWorkers)
+	// 1 base + up to 5 dynamic = max 6 total
+	assert.LessOrEqual(t, totalWorkers, 6,
+		"total workers should not exceed base + maxDynamic, got %d", totalWorkers)
+	assert.LessOrEqual(t, dynWorkers, uint64(5),
+		"dynamic workers should not exceed maxWorkers=5, got %d", dynWorkers)
+
+	wg.Wait()
 }

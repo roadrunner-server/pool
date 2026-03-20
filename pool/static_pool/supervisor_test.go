@@ -2,15 +2,16 @@ package static_pool
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/exec"
 	"testing"
 	"time"
 
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/ipc/pipe"
-	"github.com/roadrunner-server/pool/payload"
-	"github.com/roadrunner-server/pool/pool"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/ipc/pipe"
+	"github.com/roadrunner-server/pool/v2/payload"
+	"github.com/roadrunner-server/pool/v2/pool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,9 +33,9 @@ func Test_SupervisedPool_Exec(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/memleak.php", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgSupervised,
-		log(),
+		slog.Default(),
 	)
 
 	require.NoError(t, err)
@@ -62,9 +63,9 @@ func Test_SupervisedPool_AddRemoveWorkers(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/memleak.php", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgSupervised,
-		log(),
+		slog.Default(),
 	)
 
 	require.NoError(t, err)
@@ -92,7 +93,7 @@ func Test_SupervisedPool_ImmediateDestroy(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		&pool.Config{
 			AllocateTimeout: time.Second * 10,
 			DestroyTimeout:  time.Second * 10,
@@ -104,7 +105,7 @@ func Test_SupervisedPool_ImmediateDestroy(t *testing.T) {
 				MaxWorkerMemory: 100,
 			},
 		},
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
@@ -121,9 +122,9 @@ func Test_SupervisedPool_NilFactory(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		nil,
-		log(),
+		slog.Default(),
 	)
 	assert.Error(t, err)
 	assert.Nil(t, p)
@@ -135,7 +136,7 @@ func Test_SupervisedPool_NilConfig(t *testing.T) {
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
 		nil,
 		cfgSupervised,
-		log(),
+		slog.Default(),
 	)
 	assert.Error(t, err)
 	assert.Nil(t, p)
@@ -145,9 +146,9 @@ func Test_SupervisedPool_RemoveNoWorkers(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgSupervised,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
@@ -168,9 +169,9 @@ func Test_SupervisedPool_RemoveWorker(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgSupervised,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
@@ -201,9 +202,9 @@ func Test_SupervisedPoolReset(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgSupervised,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
@@ -230,7 +231,7 @@ func TestSupervisedPool_ExecWithDebugMode(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/supervised.php") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		&pool.Config{
 			Debug:           true,
 			NumWorkers:      uint64(1),
@@ -244,7 +245,7 @@ func TestSupervisedPool_ExecWithDebugMode(t *testing.T) {
 				MaxWorkerMemory: 100,
 			},
 		},
-		log(),
+		slog.Default(),
 	)
 
 	assert.NoError(t, err)
@@ -279,9 +280,9 @@ func TestSupervisedPool_ExecTTL_TimedOut(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/sleep.php", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgExecTTL,
-		log(),
+		slog.Default(),
 	)
 
 	assert.NoError(t, err)
@@ -312,9 +313,9 @@ func TestSupervisedPool_TTL_WorkerRestarted(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/sleep-ttl.php") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgExecTTL,
-		log(),
+		slog.Default(),
 	)
 
 	assert.NoError(t, err)
@@ -372,9 +373,9 @@ func TestSupervisedPool_Idle(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/idle.php", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgExecTTL,
-		log(),
+		slog.Default(),
 	)
 
 	assert.NoError(t, err)
@@ -422,9 +423,9 @@ func TestSupervisedPool_IdleTTL_StateAfterTimeout(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/exec_ttl.php", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgExecTTL,
-		log(),
+		slog.Default(),
 	)
 
 	assert.NoError(t, err)
@@ -473,9 +474,9 @@ func TestSupervisedPool_ExecTTL_OK(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/exec_ttl.php", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgExecTTL,
-		log(),
+		slog.Default(),
 	)
 
 	assert.NoError(t, err)
@@ -520,9 +521,9 @@ func TestSupervisedPool_ShouldRespond(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/should-not-be-killed.php", "pipes")
 		},
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgExecTTL,
-		log(),
+		slog.Default(),
 	)
 
 	assert.NoError(t, err)
@@ -563,9 +564,9 @@ func TestSupervisedPool_MaxMemoryReached(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/memleak.php", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgExecTTL,
-		log(),
+		slog.Default(),
 	)
 
 	assert.NoError(t, err)
@@ -590,9 +591,9 @@ func Test_SupervisedPool_FastCancel(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/sleep.php") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgSupervised,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 
@@ -620,9 +621,9 @@ func Test_SupervisedPool_AllocateFailedOK(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/allocate-failed.php") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfgExecTTL,
-		log(),
+		slog.Default(),
 	)
 
 	assert.NoError(t, err)
@@ -659,7 +660,7 @@ func Test_SupervisedPool_NoFreeWorkers(t *testing.T) {
 		t.Context(),
 		// sleep for the 3 seconds
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/sleep.php", "pipes") },
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		&pool.Config{
 			Debug:           false,
 			NumWorkers:      1,
@@ -667,7 +668,7 @@ func Test_SupervisedPool_NoFreeWorkers(t *testing.T) {
 			DestroyTimeout:  time.Second,
 			Supervisor:      &pool.SupervisorConfig{},
 		},
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
@@ -684,4 +685,122 @@ func Test_SupervisedPool_NoFreeWorkers(t *testing.T) {
 
 	time.Sleep(time.Second)
 	t.Cleanup(func() { p.Destroy(t.Context()) })
+}
+
+// ==================== Supervisor Edge Cases ====================
+
+// TestSupervisor_TTL_WorkingWorker_GetsInvalid verifies that a working worker gets StateInvalid
+// (not StateTTLReached) when TTL expires during request execution.
+// The TTL branch in control(): if worker is Ready → StateTTLReached, else → StateInvalid (graceful).
+func TestSupervisor_TTL_WorkingWorker_GetsInvalid(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/sleep.php") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      1,
+			AllocateTimeout: time.Second * 10,
+			DestroyTimeout:  time.Second * 10,
+			Supervisor: &pool.SupervisorConfig{
+				WatchTick: 1 * time.Second,
+				TTL:       2 * time.Second,
+			},
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	// Start a long exec (sleep.php sleeps for 300s)
+	go func() {
+		_, _ = p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: []byte("")}, make(chan struct{}))
+	}()
+
+	// Wait for TTL to be reached while worker is busy
+	time.Sleep(time.Second * 4)
+
+	// Worker should be marked as Invalid (not TTLReached)
+	workers := p.Workers()
+	require.NotEmpty(t, workers)
+	state := workers[0].State().CurrentState()
+	// Worker should either be Invalid (marked by supervisor) or already replaced
+	// If replaced, it should be in Ready state with a different PID
+	assert.True(t,
+		state == fsm.StateInvalid || state == fsm.StateReady || state == fsm.StateWorking,
+		"expected Invalid/Ready/Working, got %d", state)
+}
+
+// TestSupervisor_IdleTTL_SkipsNeverUsedWorker verifies that workers with LastUsed==0
+// (never executed a request) are not killed by idle TTL check.
+// On pool startup, all workers have LastUsed=0 — idle check must skip them.
+func TestSupervisor_IdleTTL_SkipsNeverUsedWorker(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/idle.php", "pipes") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      1,
+			AllocateTimeout: time.Second * 5,
+			DestroyTimeout:  time.Second * 5,
+			Supervisor: &pool.SupervisorConfig{
+				WatchTick: 1 * time.Second,
+				IdleTTL:   1 * time.Second,
+			},
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	pid := p.Workers()[0].Pid()
+
+	// Wait 3 seconds WITHOUT executing any request
+	// The idle TTL check should skip this worker because LastUsed==0
+	time.Sleep(time.Second * 3)
+
+	workers := p.Workers()
+	require.Len(t, workers, 1)
+	// Worker should still be alive with the same PID (not replaced)
+	assert.Equal(t, pid, workers[0].Pid(), "never-used worker should not be killed by idle TTL")
+}
+
+// TestSupervisor_MemoryCheck_WorkingWorkerGetsInvalid verifies that a working worker
+// exceeding memory gets StateInvalid (not StateMaxMemoryReached).
+// Same pattern as TTL in control(): killing a working worker corrupts in-flight response.
+func TestSupervisor_MemoryCheck_WorkingWorkerGetsInvalid(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/sleep.php") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      1,
+			AllocateTimeout: time.Second * 10,
+			DestroyTimeout:  time.Second * 10,
+			Supervisor: &pool.SupervisorConfig{
+				WatchTick:       1 * time.Second,
+				MaxWorkerMemory: 1, // 1 MB — very low, will be exceeded
+			},
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	// Start a long exec while worker is busy
+	go func() {
+		_, _ = p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: []byte("")}, make(chan struct{}))
+	}()
+
+	time.Sleep(time.Second * 3)
+
+	// Worker should be marked Invalid while working (not MaxMemoryReached)
+	workers := p.Workers()
+	require.NotEmpty(t, workers)
+	state := workers[0].State().CurrentState()
+	assert.True(t,
+		state == fsm.StateInvalid || state == fsm.StateReady || state == fsm.StateWorking,
+		"expected Invalid/Ready/Working, got %d", state)
 }

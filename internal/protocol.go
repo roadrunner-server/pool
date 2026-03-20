@@ -6,8 +6,8 @@ import (
 	"sync"
 
 	"github.com/roadrunner-server/errors"
-	"github.com/roadrunner-server/goridge/v3/pkg/frame"
-	"github.com/roadrunner-server/goridge/v3/pkg/relay"
+	"github.com/roadrunner-server/goridge/v4/pkg/frame"
+	"github.com/roadrunner-server/goridge/v4/pkg/relay"
 )
 
 type StopCommand struct {

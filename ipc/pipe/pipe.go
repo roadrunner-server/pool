@@ -4,23 +4,24 @@ import (
 	"context"
 	"os/exec"
 
+	"log/slog"
+
 	"github.com/roadrunner-server/errors"
-	"github.com/roadrunner-server/goridge/v3/pkg/pipe"
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/internal"
-	"github.com/roadrunner-server/pool/worker"
-	"go.uber.org/zap"
+	"github.com/roadrunner-server/goridge/v4/pkg/pipe"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/internal"
+	"github.com/roadrunner-server/pool/v2/worker"
 )
 
 // Factory connects to stack using standard
 // streams (STDIN, STDOUT pipes).
 type Factory struct {
-	log *zap.Logger
+	log *slog.Logger
 }
 
 // NewPipeFactory returns new factory instance and starts
 // listening
-func NewPipeFactory(log *zap.Logger) *Factory {
+func NewPipeFactory(log *slog.Logger) *Factory {
 	return &Factory{
 		log: log,
 	}
@@ -34,7 +35,7 @@ type sr struct {
 // SpawnWorkerWithContext Creates a new Process and connects it to goridge relay,
 // method Wait() must be handled on the level above.
 func (f *Factory) SpawnWorkerWithContext(ctx context.Context, cmd *exec.Cmd, options ...worker.Options) (*worker.Process, error) {
-	spCh := make(chan sr)
+	spCh := make(chan sr, 1)
 	go func() {
 		w, err := worker.InitBaseWorker(cmd, options...)
 		if err != nil {
