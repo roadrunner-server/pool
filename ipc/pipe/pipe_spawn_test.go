@@ -6,15 +6,16 @@ import (
 	"testing"
 	"time"
 
+	"log/slog"
+
 	"github.com/roadrunner-server/errors"
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/payload"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/payload"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
-var log = zap.NewNop()
+var log = slog.New(slog.DiscardHandler)
 
 func Test_GetState2(t *testing.T) {
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")

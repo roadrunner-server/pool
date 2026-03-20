@@ -7,12 +7,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"log/slog"
+
 	"github.com/roadrunner-server/errors"
 	"github.com/roadrunner-server/events"
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/worker"
-	"github.com/roadrunner-server/pool/worker_watcher/container/channel"
-	"go.uber.org/zap"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/worker"
+	"github.com/roadrunner-server/pool/v2/worker_watcher/container/channel"
 )
 
 const maxWorkers = 2048
@@ -32,7 +33,7 @@ type WorkerWatcher struct {
 	workers sync.Map
 	// workers map[int64]*worker.Process
 
-	log *zap.Logger
+	log *slog.Logger
 
 	allocator       Allocator
 	allocateTimeout time.Duration
@@ -40,7 +41,7 @@ type WorkerWatcher struct {
 }
 
 // NewSyncWorkerWatcher is a constructor for the Watcher
-func NewSyncWorkerWatcher(allocator Allocator, log *zap.Logger, numWorkers uint64, allocateTimeout time.Duration) *WorkerWatcher {
+func NewSyncWorkerWatcher(allocator Allocator, log *slog.Logger, numWorkers uint64, allocateTimeout time.Duration) *WorkerWatcher {
 	eb, _ := events.NewEventBus()
 	ww := &WorkerWatcher{
 		container:       channel.NewVector(),
@@ -171,7 +172,7 @@ func (ww *WorkerWatcher) Allocate() error {
 	sw, err := ww.allocator()
 	if err != nil {
 		// log incident
-		ww.log.Error("allocate", zap.Error(err))
+		ww.log.Error("allocate", "error", err)
 		// if no timeout, return the error immediately
 		if ww.allocateTimeout == 0 {
 			return errors.E(op, errors.WorkerAllocate, err)
@@ -192,7 +193,7 @@ func (ww *WorkerWatcher) Allocate() error {
 				sw, err = ww.allocator()
 				if err != nil {
 					// log incident
-					ww.log.Error("allocate retry attempt failed", zap.String("internal_event_name", events.EventWorkerError.String()), zap.Error(err))
+					ww.log.Error("allocate retry attempt failed", "internal_event_name", events.EventWorkerError.String(), "error", err)
 					continue
 				}
 
@@ -212,7 +213,7 @@ done:
 	ww.addToWatch(sw)
 	// add a new worker to the worker's slice (to get information about workers in parallel)
 	if w, ok := ww.workers.LoadAndDelete(sw.Pid()); ok {
-		ww.log.Warn("allocated worker already exists, killing duplicate, report this case", zap.Int64("pid", sw.Pid()))
+		ww.log.Warn("allocated worker already exists, killing duplicate, report this case", "pid", sw.Pid())
 		_ = w.(*worker.Process).Kill()
 	}
 
@@ -243,7 +244,7 @@ func (ww *WorkerWatcher) Release(w *worker.Process) {
 
 		err := w.Stop()
 		if err != nil {
-			ww.log.Debug("worker release", zap.Error(err))
+			ww.log.Debug("worker release", "error", err)
 		}
 	default:
 		// in all other cases, we have no choice rather than kill the worker
@@ -376,7 +377,7 @@ func (ww *WorkerWatcher) Destroy(ctx context.Context) {
 			return
 		case <-ctx.Done():
 			// kill workers
-			ww.log.Debug("destroy: context canceled", zap.Error(ctx.Err()))
+			ww.log.Debug("destroy: context canceled", "error", ctx.Err())
 			ww.mu.Lock()
 			wg := &sync.WaitGroup{}
 			ww.workers.Range(func(key, value any) bool {
@@ -419,7 +420,7 @@ func (ww *WorkerWatcher) List() []*worker.Process {
 func (ww *WorkerWatcher) wait(w *worker.Process) {
 	err := w.Wait()
 	if err != nil {
-		ww.log.Debug("worker stopped", zap.String("internal_event_name", events.EventWorkerWaitExit.String()), zap.Error(err))
+		ww.log.Debug("worker stopped", "internal_event_name", events.EventWorkerWaitExit.String(), "error", err)
 	}
 
 	// remove worker
@@ -427,7 +428,7 @@ func (ww *WorkerWatcher) wait(w *worker.Process) {
 
 	if w.State().Compare(fsm.StateDestroyed) {
 		// worker was manually destroyed, no need to replace
-		ww.log.Debug("worker destroyed", zap.Int64("pid", w.Pid()), zap.String("internal_event_name", events.EventWorkerDestruct.String()), zap.Error(err))
+		ww.log.Debug("worker destroyed", "pid", w.Pid(), "internal_event_name", events.EventWorkerDestruct.String(), "error", err)
 		return
 	}
 
@@ -439,7 +440,7 @@ func (ww *WorkerWatcher) wait(w *worker.Process) {
 		}
 
 		ww.numWorkers.Add(^uint64(0)) // dead worker was not replaced
-		ww.log.Error("failed to allocate the worker", zap.String("internal_event_name", events.EventWorkerError.String()), zap.Error(err))
+		ww.log.Error("failed to allocate the worker", "internal_event_name", events.EventWorkerError.String(), "error", err)
 		if ww.numWorkers.Load() == 0 {
 			panic("no workers available, can't run the application")
 		}

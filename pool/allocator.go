@@ -5,10 +5,11 @@ import (
 	"os/exec"
 	"time"
 
+	"log/slog"
+
 	"github.com/roadrunner-server/errors"
 	"github.com/roadrunner-server/events"
-	"github.com/roadrunner-server/pool/worker"
-	"go.uber.org/zap"
+	"github.com/roadrunner-server/pool/v2/worker"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -22,7 +23,7 @@ type Factory interface {
 }
 
 // NewPoolAllocator initializes allocator of the workers
-func NewPoolAllocator(ctx context.Context, timeout time.Duration, maxExecs uint64, factory Factory, cmd Command, command []string, log *zap.Logger) func() (*worker.Process, error) {
+func NewPoolAllocator(ctx context.Context, timeout time.Duration, maxExecs uint64, factory Factory, cmd Command, command []string, log *slog.Logger) func() (*worker.Process, error) {
 	return func() (*worker.Process, error) {
 		ctxT, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
@@ -37,7 +38,7 @@ func NewPoolAllocator(ctx context.Context, timeout time.Duration, maxExecs uint6
 		}
 
 		// wrap sync worker
-		log.Debug("worker is allocated", zap.Int64("pid", w.Pid()), zap.Uint64("max_execs", w.MaxExecs()), zap.String("internal_event_name", events.EventWorkerConstruct.String()))
+		log.Debug("worker is allocated", "pid", w.Pid(), "max_execs", w.MaxExecs(), "internal_event_name", events.EventWorkerConstruct.String())
 		return w, nil
 	}
 }

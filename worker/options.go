@@ -2,9 +2,8 @@ package worker
 
 import (
 	"crypto/rand"
+	"log/slog"
 	"math/big"
-
-	"go.uber.org/zap"
 )
 
 const (
@@ -13,7 +12,7 @@ const (
 
 type Options func(p *Process)
 
-func WithLog(z *zap.Logger) Options {
+func WithLog(z *slog.Logger) Options {
 	return func(p *Process) {
 		p.log = z
 	}
@@ -25,7 +24,7 @@ func WithMaxExecs(maxExecs uint64) Options {
 	}
 }
 
-func calculateMaxExecsJitter(maxExecs, jitter uint64, log *zap.Logger) uint64 {
+func calculateMaxExecsJitter(maxExecs, jitter uint64, log *slog.Logger) uint64 {
 	if maxExecs == 0 {
 		return 0
 	}
@@ -33,7 +32,7 @@ func calculateMaxExecsJitter(maxExecs, jitter uint64, log *zap.Logger) uint64 {
 	random, err := rand.Int(rand.Reader, big.NewInt(int64(jitter))) //nolint:gosec
 
 	if err != nil {
-		log.Debug("jitter calculation error", zap.Error(err), zap.Uint64("jitter", jitter))
+		log.Debug("jitter calculation error", "error", err, "jitter", jitter)
 		return maxExecs
 	}
 

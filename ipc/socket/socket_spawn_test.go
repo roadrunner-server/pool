@@ -8,13 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/roadrunner-server/pool/payload"
+	"log/slog"
+
+	"github.com/roadrunner-server/pool/v2/payload"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
-var log = zap.NewNop()
+var log = slog.New(slog.DiscardHandler)
 
 func Test_Tcp_Start2(t *testing.T) {
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")

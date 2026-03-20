@@ -2,17 +2,17 @@ package pipe
 
 import (
 	"context"
+	"log/slog"
 	"os/exec"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/roadrunner-server/errors"
-	"github.com/roadrunner-server/pool/fsm"
-	"github.com/roadrunner-server/pool/payload"
+	"github.com/roadrunner-server/pool/v2/fsm"
+	"github.com/roadrunner-server/pool/v2/payload"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func Test_GetState(t *testing.T) {
@@ -442,8 +442,7 @@ func Benchmark_WorkerPipeTTL(b *testing.B) {
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 	ctx := b.Context()
 
-	log, _ = zap.NewDevelopment()
-	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
+	w, err := NewPipeFactory(slog.Default()).SpawnWorkerWithContext(ctx, cmd)
 	require.NoError(b, err)
 
 	go func() {

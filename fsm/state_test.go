@@ -1,15 +1,14 @@
 package fsm
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 func Test_NewState(t *testing.T) {
-	log, err := zap.NewDevelopment()
-	assert.NoError(t, err)
+	log := slog.Default()
 	st := NewFSM(StateErrored, log)
 
 	assert.Equal(t, "errored", st.String())
@@ -22,8 +21,7 @@ func Test_NewState(t *testing.T) {
 }
 
 func Test_IsActive(t *testing.T) {
-	log, err := zap.NewDevelopment()
-	assert.NoError(t, err)
+	log := slog.Default()
 	assert.False(t, NewFSM(StateInactive, log).IsActive())
 	assert.True(t, NewFSM(StateReady, log).IsActive())
 	assert.True(t, NewFSM(StateWorking, log).IsActive())

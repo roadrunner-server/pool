@@ -1,12 +1,12 @@
 package static_pool
 
 import (
-	"go.uber.org/zap"
+	"log/slog"
 )
 
 type Options func(p *Pool)
 
-func WithLogger(z *zap.Logger) Options {
+func WithLogger(z *slog.Logger) Options {
 	return func(p *Pool) {
 		p.log = z
 	}

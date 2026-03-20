@@ -6,18 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/roadrunner-server/pool/ipc/pipe"
-	"github.com/roadrunner-server/pool/payload"
-	"github.com/roadrunner-server/pool/pool"
+	"log/slog"
+
+	"github.com/roadrunner-server/pool/v2/ipc/pipe"
+	"github.com/roadrunner-server/pool/v2/payload"
+	"github.com/roadrunner-server/pool/v2/pool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
-
-var dynlog = func() *zap.Logger {
-	logger, _ := zap.NewDevelopment()
-	return logger
-}
 
 var testDynCfg = &pool.Config{
 	NumWorkers:      5,
@@ -34,9 +30,9 @@ func Test_DynAllocator(t *testing.T) {
 	np, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
-		pipe.NewPipeFactory(dynlog()),
+		pipe.NewPipeFactory(slog.Default()),
 		testDynCfg,
-		dynlog(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, np)
@@ -69,9 +65,9 @@ func Test_DynAllocatorManyReq(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/client.php", "slow_req", "pipes")
 		},
-		pipe.NewPipeFactory(dynlog()),
+		pipe.NewPipeFactory(slog.Default()),
 		testDynCfgMany,
-		dynlog(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, np)
@@ -123,9 +119,9 @@ func Test_DynamicPool_OverMax(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/worker-slow-dyn.php")
 		},
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		dynAllCfg,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
@@ -215,9 +211,9 @@ func Test_DynamicPool(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/worker-slow-dyn.php")
 		},
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		dynAllCfg,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, errp)
 	assert.NotNil(t, p)
@@ -268,9 +264,9 @@ func Test_DynamicPool_500W(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/worker-slow-dyn.php")
 		},
-		pipe.NewPipeFactory(log()),
+		pipe.NewPipeFactory(slog.Default()),
 		dynAllCfg,
-		log(),
+		slog.Default(),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
@@ -323,9 +319,9 @@ func Test_DynAllocator_100Workers(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/client.php", "delay", "pipes")
 		},
-		pipe.NewPipeFactory(dynlog()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfg,
-		dynlog(),
+		slog.Default(),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p)
@@ -388,9 +384,9 @@ func Test_DynAllocator_ReallocationCycle(t *testing.T) {
 		func(cmd []string) *exec.Cmd {
 			return exec.Command("php", "../../tests/client.php", "delay", "pipes")
 		},
-		pipe.NewPipeFactory(dynlog()),
+		pipe.NewPipeFactory(slog.Default()),
 		cfg,
-		dynlog(),
+		slog.Default(),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p)

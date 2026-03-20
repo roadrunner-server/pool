@@ -9,11 +9,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/roadrunner-server/pool/pool"
-	"github.com/roadrunner-server/pool/pool/ratelimiter"
-	"github.com/roadrunner-server/pool/worker"
-	"github.com/roadrunner-server/pool/worker_watcher"
-	"go.uber.org/zap"
+	"log/slog"
+
+	"github.com/roadrunner-server/pool/v2/pool"
+	"github.com/roadrunner-server/pool/v2/pool/ratelimiter"
+	"github.com/roadrunner-server/pool/v2/worker"
+	"github.com/roadrunner-server/pool/v2/worker_watcher"
 )
 
 type dynAllocator struct {
@@ -26,7 +27,7 @@ type dynAllocator struct {
 	currAllocated atomic.Uint64
 	mu            *sync.Mutex
 	started       atomic.Bool
-	log           *zap.Logger
+	log           *slog.Logger
 	// pool
 	ww        *worker_watcher.WorkerWatcher
 	allocator func() (*worker.Process, error)
@@ -38,7 +39,7 @@ type dynAllocator struct {
 }
 
 func newDynAllocator(
-	log *zap.Logger,
+	log *slog.Logger,
 	ww *worker_watcher.WorkerWatcher,
 	alloc func() (*worker.Process, error),
 	stopCh chan struct{},
@@ -79,9 +80,9 @@ func (da *dynAllocator) addMoreWorkers() {
 	defer da.mu.Unlock()
 
 	da.log.Debug("No free workers, trying to allocate dynamically",
-		zap.Duration("idle_timeout", da.idleTimeout),
-		zap.Uint64("max_workers", da.maxWorkers),
-		zap.Uint64("spawn_rate", da.spawnRate))
+		"idle_timeout", da.idleTimeout,
+		"max_workers", da.maxWorkers,
+		"spawn_rate", da.spawnRate)
 
 	if !da.started.Load() {
 		// start the dynamic allocator listener
@@ -92,7 +93,7 @@ func (da *dynAllocator) addMoreWorkers() {
 	// if we already allocated max workers, we can't allocate more
 	if da.currAllocated.Load() >= da.maxWorkers {
 		// can't allocate more
-		da.log.Warn("can't allocate more workers, already allocated max workers", zap.Uint64("max_workers", da.maxWorkers))
+		da.log.Warn("can't allocate more workers, already allocated max workers", "max_workers", da.maxWorkers)
 		return
 	}
 
@@ -106,20 +107,20 @@ func (da *dynAllocator) addMoreWorkers() {
 
 		err := da.ww.AddWorker()
 		if err != nil {
-			da.log.Error("failed to allocate worker", zap.Error(err))
+			da.log.Error("failed to allocate worker", "error", err)
 			continue
 		}
 
 		// increase the number of additionally allocated options
 		aw := da.currAllocated.Add(1)
-		da.log.Debug("allocated additional worker", zap.Uint64("currently additionally allocated", aw))
+		da.log.Debug("allocated additional worker", "currently additionally allocated", aw)
 	}
 
-	da.log.Debug("currently allocated", zap.Uint64("number", da.currAllocated.Load()))
+	da.log.Debug("currently allocated", "number", da.currAllocated.Load())
 }
 
 func (da *dynAllocator) startIdleTTLListener() {
-	da.log.Debug("starting dynamic allocator listener", zap.Duration("idle_timeout", da.idleTimeout))
+	da.log.Debug("starting dynamic allocator listener", "idle_timeout", da.idleTimeout)
 	go func() {
 		// DynamicAllocatorOpts are read-only, so we can use them without a lock
 		triggerTTL := time.NewTicker(da.idleTimeout)
@@ -137,7 +138,7 @@ func (da *dynAllocator) startIdleTTLListener() {
 				return
 			// when this channel is triggered, we should deallocate all dynamically allocated workers
 			case <-triggerTTL.C:
-				da.log.Debug("dynamic workers TTL", zap.String("reason", "idle timeout reached"))
+				da.log.Debug("dynamic workers TTL", "reason", "idle timeout reached")
 				// check the last allocation time - if we had an allocation recently (within idleTimeout), we should skip deallocation
 				lastAlloc := da.lastAllocTry.Load()
 				if lastAlloc != nil && time.Since(*lastAlloc) < da.idleTimeout {
@@ -160,7 +161,7 @@ func (da *dynAllocator) startIdleTTLListener() {
 				}
 
 				alloc := da.currAllocated.Load()
-				da.log.Debug("deallocating dynamically allocated workers", zap.Uint64("to_deallocate", alloc))
+				da.log.Debug("deallocating dynamically allocated workers", "to_deallocate", alloc)
 
 				if alloc >= da.spawnRate {
 					// deallocate in batches
@@ -176,20 +177,20 @@ func (da *dynAllocator) startIdleTTLListener() {
 					// the only error we can get here is NoFreeWorkers, meaning all workers are busy
 					if err != nil {
 						// we should stop deallocation attempts
-						da.log.Error("failed to remove worker from the pool, stopping deallocation", zap.Error(err))
+						da.log.Error("failed to remove worker from the pool, stopping deallocation", "error", err)
 						// Don't decrement counter if removal failed - worker still exists
 						break
 					}
 
 					// decrease the number of additionally allocated workers
 					nw := da.currAllocated.Add(^uint64(0))
-					da.log.Debug("deallocated additional worker", zap.Uint64("currently additionally allocated", nw))
+					da.log.Debug("deallocated additional worker", "currently additionally allocated", nw)
 				}
 
 				if da.currAllocated.Load() > 0 {
 					// if we still have allocated workers, we should keep the listener running
 					da.mu.Unlock()
-					da.log.Debug("dynamic allocator listener continuing, still have dynamically allocated workers", zap.Uint64("remaining", da.currAllocated.Load()))
+					da.log.Debug("dynamic allocator listener continuing, still have dynamically allocated workers", "remaining", da.currAllocated.Load())
 					continue
 				}
 

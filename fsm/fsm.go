@@ -1,14 +1,14 @@
 package fsm
 
 import (
+	"log/slog"
 	"sync/atomic"
 
 	"github.com/roadrunner-server/errors"
-	"go.uber.org/zap"
 )
 
 // NewFSM returns new FSM implementation based on initial state
-func NewFSM(initialState int64, log *zap.Logger) *Fsm {
+func NewFSM(initialState int64, log *slog.Logger) *Fsm {
 	f := &Fsm{log: log}
 	f.currentState.Store(initialState)
 	return f
@@ -16,7 +16,7 @@ func NewFSM(initialState int64, log *zap.Logger) *Fsm {
 
 // Fsm is general https://en.wikipedia.org/wiki/Finite-state_machine to transition between worker states
 type Fsm struct {
-	log      *zap.Logger
+	log      *slog.Logger
 	numExecs atomic.Uint64
 	// to be lightweight, use UnixNano
 	lastUsed     atomic.Uint64
@@ -38,7 +38,7 @@ Transition moves worker from one state to another
 func (s *Fsm) Transition(to int64) {
 	err := s.recognizer(to)
 	if err != nil {
-		s.log.Debug("transition info, this is not an error", zap.String("debug", err.Error()))
+		s.log.Debug("transition info, this is not an error", "debug", err.Error())
 		return
 	}
 
