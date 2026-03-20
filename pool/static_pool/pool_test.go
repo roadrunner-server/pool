@@ -1176,7 +1176,7 @@ func toStringNotFun(data []byte) string {
 	return string(data)
 }
 
-// ==================== Phase 4: Pool Lifecycle Edge Cases ====================
+// ==================== Pool Lifecycle Edge Cases ====================
 
 // TestPool_ExecAfterDestroy verifies that Exec after Destroy returns a clean error, not a panic.
 // In production, HTTP handlers may hold pool references after config-reload triggers Destroy.
@@ -1211,7 +1211,7 @@ func TestPool_ExecAfterDestroy(t *testing.T) {
 }
 
 // TestPool_MaxQueueSize_Zero_AllowsRequests verifies that QueueSize=0 means unlimited.
-// Line 169: `sp.maxQueueSize.Load() != 0 && ...` — the != 0 guard is essential.
+// The `maxQueueSize != 0` guard in Exec() is essential.
 // Without it, 0 >= 0 would block ALL requests.
 func TestPool_MaxQueueSize_Zero_AllowsRequests(t *testing.T) {
 	p, err := NewPool(

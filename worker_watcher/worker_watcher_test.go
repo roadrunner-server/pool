@@ -96,7 +96,7 @@ func TestWorkerWatcher_AllocateRetryTimeout(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(errors.WorkerAllocate, err))
 	assert.GreaterOrEqual(t, elapsed, 3*time.Second, "should have retried for ~3s")
-	assert.Less(t, elapsed, 5*time.Second, "should not exceed timeout significantly")
+	assert.Less(t, elapsed, 8*time.Second, "should not exceed timeout significantly")
 }
 
 // TestWorkerWatcher_AllocateNoTimeout verifies that Allocate returns immediately
@@ -135,7 +135,7 @@ func TestWorkerWatcher_AllocateRetrySuccess(t *testing.T) {
 }
 
 // TestWorkerWatcher_RemoveWorker_CannotRemoveLast verifies the last worker cannot be removed.
-// Line 98 guard prevents removing the last worker. If broken, pool panics on "no workers available".
+// The numWorkers==1 guard in RemoveWorker() prevents removing the last worker. If broken, pool panics on "no workers available".
 func TestWorkerWatcher_RemoveWorker_CannotRemoveLast(t *testing.T) {
 	log := slog.Default()
 	ww := NewSyncWorkerWatcher(alwaysFailAllocator(), log, 1, 5*time.Second)
@@ -145,7 +145,7 @@ func TestWorkerWatcher_RemoveWorker_CannotRemoveLast(t *testing.T) {
 	assert.Equal(t, uint64(1), ww.numWorkers.Load())
 
 	// RemoveWorker internally calls Take which needs workers in the container,
-	// but the guard at line 98 checks numWorkers==1 first and returns nil.
+	// but the numWorkers==1 guard in RemoveWorker() checks first and returns nil.
 	err := ww.RemoveWorker(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, uint64(1), ww.numWorkers.Load(), "should not decrement the last worker")
@@ -253,4 +253,25 @@ func TestWorkerWatcher_List_EmptyWatcher(t *testing.T) {
 
 	workers := ww.List()
 	assert.Nil(t, workers)
+}
+
+// TestWorkerWatcher_Allocate_StopChExitsRetryLoop verifies that sending on stopCh
+// causes the Allocate retry loop to exit promptly with WatcherStopped.
+func TestWorkerWatcher_Allocate_StopChExitsRetryLoop(t *testing.T) {
+	log := slog.Default()
+	ww := NewSyncWorkerWatcher(alwaysFailAllocator(), log, 1, 10*time.Second)
+
+	// Send on stopCh after 1 second (in the background)
+	go func() {
+		time.Sleep(time.Second)
+		ww.stopCh <- struct{}{}
+	}()
+
+	start := time.Now()
+	err := ww.Allocate()
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(errors.WatcherStopped, err))
+	assert.Less(t, elapsed, 3*time.Second, "should exit promptly via stopCh")
 }

@@ -59,6 +59,7 @@ func (v *Vec) Pop(ctx context.Context) (*worker.Process, error) {
 	for v.reset.Load() {
 		select {
 		case <-ctx.Done():
+			return nil, errors.E(ctx.Err(), errors.NoFreeWorkers)
 		default:
 			time.Sleep(time.Millisecond * 10)
 		}

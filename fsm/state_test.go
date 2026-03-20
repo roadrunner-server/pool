@@ -110,7 +110,7 @@ func TestFSM_Recognizer_ValidTransitions(t *testing.T) {
 }
 
 // TestFSM_Recognizer_BlockedTransitions verifies illegal transitions are rejected.
-// Documents the state machine contract — terminal states can't resurrect.
+// Documents the state machine contract — terminal states can't resurrect, self-transitions are rejected, and invalid source states are blocked.
 func TestFSM_Recognizer_BlockedTransitions(t *testing.T) {
 	log := slog.Default()
 

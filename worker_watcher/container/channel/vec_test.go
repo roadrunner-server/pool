@@ -158,7 +158,7 @@ func Test_Vec_PopContextTimeout(t *testing.T) {
 	assert.True(t, elapsed >= 50*time.Millisecond, "should have waited for timeout")
 }
 
-// ==================== Phase 2: New Tests ====================
+// ==================== Additional Tests ====================
 
 // Test_Vec_PopDuringReset_BlocksThenUnblocks verifies Pop blocks during Reset and unblocks after ResetDone.
 // If Pop succeeds during reset, a worker can be popped and simultaneously killed by the reset path.
@@ -207,6 +207,33 @@ func Test_Vec_PopDuringReset_BlocksThenUnblocks(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Pop should have unblocked after ResetDone")
 	}
+}
+
+// Test_Vec_PopDuringReset_ContextCancel verifies Pop returns NoFreeWorkers when context
+// expires during the reset spin-loop (instead of hanging forever).
+func Test_Vec_PopDuringReset_ContextCancel(t *testing.T) {
+	vec := NewVector()
+	for range 3 {
+		vec.Push(createTestWorker(t))
+	}
+
+	// Signal reset — Pop should now spin-wait
+	vec.Reset()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	w, err := vec.Pop(ctx)
+	elapsed := time.Since(start)
+
+	assert.Nil(t, w)
+	require.Error(t, err)
+	assert.True(t, errors.Is(errors.NoFreeWorkers, err))
+	assert.Less(t, elapsed, 2*time.Second, "should exit promptly when context expires")
+
+	// Cleanup: complete the reset so vec isn't stuck
+	vec.ResetDone()
 }
 
 // Test_Vec_PushToFullChannel verifies that when the channel is full, overflow workers are killed.

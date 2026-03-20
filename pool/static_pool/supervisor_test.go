@@ -687,11 +687,11 @@ func Test_SupervisedPool_NoFreeWorkers(t *testing.T) {
 	t.Cleanup(func() { p.Destroy(t.Context()) })
 }
 
-// ==================== Phase 5: Supervisor Edge Cases ====================
+// ==================== Supervisor Edge Cases ====================
 
 // TestSupervisor_TTL_WorkingWorker_GetsInvalid verifies that a working worker gets StateInvalid
 // (not StateTTLReached) when TTL expires during request execution.
-// Lines 94-98 in control(): working workers get StateInvalid (graceful), not StateTTLReached (kill).
+// The TTL branch in control(): if worker is Ready → StateTTLReached, else → StateInvalid (graceful).
 func TestSupervisor_TTL_WorkingWorker_GetsInvalid(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
@@ -769,7 +769,7 @@ func TestSupervisor_IdleTTL_SkipsNeverUsedWorker(t *testing.T) {
 
 // TestSupervisor_MemoryCheck_WorkingWorkerGetsInvalid verifies that a working worker
 // exceeding memory gets StateInvalid (not StateMaxMemoryReached).
-// Same pattern as TTL — lines 116-119: killing a working worker corrupts in-flight response.
+// Same pattern as TTL in control(): killing a working worker corrupts in-flight response.
 func TestSupervisor_MemoryCheck_WorkingWorkerGetsInvalid(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),

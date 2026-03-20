@@ -439,10 +439,10 @@ func Test_DynAllocator_ReallocationCycle(t *testing.T) {
 	assert.Len(t, p.Workers(), 2, "cycle 2: should return to base count after re-allocation")
 }
 
-// ==================== Phase 6: Dynamic Allocator Edge Cases ====================
+// ==================== Dynamic Allocator Edge Cases ====================
 
 // Test_DynAllocator_SpawnRate_CappedByMaxWorkers verifies that spawnRate doesn't exceed maxWorkers.
-// Inner loop break on line 104 (`currAllocated >= maxWorkers`). Without it, over-allocation occurs.
+// The `currAllocated >= maxWorkers` break in addMoreWorkers() spawn loop. Without it, over-allocation occurs.
 func Test_DynAllocator_SpawnRate_CappedByMaxWorkers(t *testing.T) {
 	cfg := &pool.Config{
 		NumWorkers:      1,
@@ -493,7 +493,7 @@ func Test_DynAllocator_SpawnRate_CappedByMaxWorkers(t *testing.T) {
 
 // Test_DynAllocator_CounterConsistency_AfterFailedRemoval verifies that currAllocated
 // doesn't decrement when RemoveWorker fails (all workers busy).
-// Line 181-182: break on removal failure prevents counter desync.
+// The break on removal failure in startIdleTTLListener() deallocation loop prevents counter desync.
 func Test_DynAllocator_CounterConsistency_AfterFailedRemoval(t *testing.T) {
 	cfg := &pool.Config{
 		NumWorkers:      1,
@@ -550,7 +550,7 @@ func Test_DynAllocator_CounterConsistency_AfterFailedRemoval(t *testing.T) {
 
 // Test_DynAllocator_RateLimit_ThunderingHerd verifies that the rate limiter prevents
 // over-allocation under thundering herd conditions.
-// Rate limiter (line 70) gates concurrent allocation. Without it, each pending request
+// The TryAcquire() rate limiter at the top of addMoreWorkers() gates concurrent allocation. Without it, each pending request
 // could trigger a spawn batch.
 func Test_DynAllocator_RateLimit_ThunderingHerd(t *testing.T) {
 	cfg := &pool.Config{
