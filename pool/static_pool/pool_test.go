@@ -1175,3 +1175,173 @@ func BenchmarkToStringSafe(b *testing.B) {
 func toStringNotFun(data []byte) string {
 	return string(data)
 }
+
+// ==================== Phase 4: Pool Lifecycle Edge Cases ====================
+
+// TestPool_ExecAfterDestroy verifies that Exec after Destroy returns a clean error, not a panic.
+// In production, HTTP handlers may hold pool references after config-reload triggers Destroy.
+func TestPool_ExecAfterDestroy(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      1,
+			AllocateTimeout: time.Second * 5,
+			DestroyTimeout:  time.Second * 5,
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+
+	// Verify pool works before destroy
+	r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
+	require.NoError(t, err)
+	resp := <-r
+	assert.Equal(t, []byte("hello"), resp.Body())
+
+	// Destroy the pool
+	p.Destroy(t.Context())
+
+	// Exec after Destroy — must return WatcherStopped error, not panic
+	_, err = p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
+	require.Error(t, err)
+	assert.True(t, errors.Is(errors.WatcherStopped, err), "expected WatcherStopped, got: %v", err)
+}
+
+// TestPool_MaxQueueSize_Zero_AllowsRequests verifies that QueueSize=0 means unlimited.
+// Line 169: `sp.maxQueueSize.Load() != 0 && ...` — the != 0 guard is essential.
+// Without it, 0 >= 0 would block ALL requests.
+func TestPool_MaxQueueSize_Zero_AllowsRequests(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      uint64(runtime.NumCPU()), //nolint:gosec
+			AllocateTimeout: time.Second * 5,
+			DestroyTimeout:  time.Second * 5,
+		},
+		slog.Default(),
+		WithQueueSize(0), // explicitly zero
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	// All 10 sequential requests should succeed
+	for range 10 {
+		r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
+		require.NoError(t, err)
+		resp := <-r
+		assert.Equal(t, []byte("hello"), resp.Body())
+	}
+}
+
+// TestPool_Reset_WhileExecInProgress verifies Reset works while an Exec is in progress.
+// This is the SIGHUP / config reload scenario. Reset must wait for in-flight work.
+func TestPool_Reset_WhileExecInProgress(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/sleep_short.php") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      1,
+			AllocateTimeout: time.Second * 10,
+			DestroyTimeout:  time.Second * 10,
+			ResetTimeout:    time.Second * 10,
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	// Get initial worker PID
+	workers := p.Workers()
+	require.Len(t, workers, 1)
+	pidBefore := workers[0].Pid()
+
+	// Start a slow exec in the background
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
+	}()
+
+	// Give the exec time to start
+	time.Sleep(time.Millisecond * 500)
+
+	// Reset while exec is in progress
+	err = p.Reset(t.Context())
+	require.NoError(t, err)
+
+	// Wait for in-flight exec to complete
+	<-done
+
+	// Pool should work with a new worker
+	r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
+	require.NoError(t, err)
+	resp := <-r
+	assert.NotNil(t, resp.Body())
+
+	// New worker should have different PID
+	workers2 := p.Workers()
+	require.Len(t, workers2, 1)
+	assert.NotEqual(t, pidBefore, workers2[0].Pid())
+}
+
+// TestPool_ConcurrentExec_MaxJobs1 verifies pool works correctly when workers are replaced after each job.
+// MaxJobs=1 triggers replacement after every request. If the replacement races with next Exec, deadlock.
+func TestPool_ConcurrentExec_MaxJobs1(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "pid", "pipes") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      2,
+			MaxJobs:         1,
+			AllocateTimeout: time.Second * 5,
+			DestroyTimeout:  time.Second * 5,
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	time.Sleep(time.Second)
+
+	// Track PIDs across sequential requests
+	seenPIDs := make(map[string]struct{})
+
+	for range 10 {
+		r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
+		require.NoError(t, err)
+		resp := <-r
+		require.NotNil(t, resp.Body())
+		seenPIDs[string(resp.Body())] = struct{}{}
+	}
+
+	// With MaxJobs=1, workers get replaced — we should see multiple different PIDs
+	assert.Greater(t, len(seenPIDs), 1, "should see different PIDs due to MaxJobs=1 replacement")
+}
+
+// TestPool_ExecEmptyPayload verifies that Exec with empty payload returns a clear error.
+func TestPool_ExecEmptyPayload(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
+		pipe.NewPipeFactory(slog.Default()),
+		testCfg,
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	_, err = p.Exec(t.Context(), &payload.Payload{Body: nil, Context: nil}, make(chan struct{}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "payload can not be empty")
+}

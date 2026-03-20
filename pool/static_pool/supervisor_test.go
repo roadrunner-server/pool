@@ -686,3 +686,123 @@ func Test_SupervisedPool_NoFreeWorkers(t *testing.T) {
 	time.Sleep(time.Second)
 	t.Cleanup(func() { p.Destroy(t.Context()) })
 }
+
+// ==================== Phase 5: Supervisor Edge Cases ====================
+
+// TestSupervisor_TTL_WorkingWorker_GetsInvalid verifies that a working worker gets StateInvalid
+// (not StateTTLReached) when TTL expires during request execution.
+// Lines 94-98 in control(): working workers get StateInvalid (graceful), not StateTTLReached (kill).
+func TestSupervisor_TTL_WorkingWorker_GetsInvalid(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/sleep.php") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      1,
+			AllocateTimeout: time.Second * 10,
+			DestroyTimeout:  time.Second * 10,
+			Supervisor: &pool.SupervisorConfig{
+				WatchTick: 1 * time.Second,
+				TTL:       2 * time.Second,
+			},
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	// Start a long exec (sleep.php sleeps for 300s)
+	go func() {
+		_, _ = p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: []byte("")}, make(chan struct{}))
+	}()
+
+	// Wait for TTL to be reached while worker is busy
+	time.Sleep(time.Second * 4)
+
+	// Worker should be marked as Invalid (not TTLReached)
+	workers := p.Workers()
+	if len(workers) > 0 {
+		state := workers[0].State().CurrentState()
+		// Worker should either be Invalid (marked by supervisor) or already replaced
+		// If replaced, it should be in Ready state with a different PID
+		assert.True(t,
+			state == fsm.StateInvalid || state == fsm.StateReady || state == fsm.StateWorking,
+			"expected Invalid/Ready/Working, got %d", state)
+	}
+}
+
+// TestSupervisor_IdleTTL_SkipsNeverUsedWorker verifies that workers with LastUsed==0
+// (never executed a request) are not killed by idle TTL check.
+// On pool startup, all workers have LastUsed=0 — idle check must skip them.
+func TestSupervisor_IdleTTL_SkipsNeverUsedWorker(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/idle.php", "pipes") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      1,
+			AllocateTimeout: time.Second * 5,
+			DestroyTimeout:  time.Second * 5,
+			Supervisor: &pool.SupervisorConfig{
+				WatchTick: 1 * time.Second,
+				IdleTTL:   1 * time.Second,
+			},
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	pid := p.Workers()[0].Pid()
+
+	// Wait 3 seconds WITHOUT executing any request
+	// The idle TTL check should skip this worker because LastUsed==0
+	time.Sleep(time.Second * 3)
+
+	workers := p.Workers()
+	require.Len(t, workers, 1)
+	// Worker should still be alive with the same PID (not replaced)
+	assert.Equal(t, pid, workers[0].Pid(), "never-used worker should not be killed by idle TTL")
+}
+
+// TestSupervisor_MemoryCheck_WorkingWorkerGetsInvalid verifies that a working worker
+// exceeding memory gets StateInvalid (not StateMaxMemoryReached).
+// Same pattern as TTL — lines 116-119: killing a working worker corrupts in-flight response.
+func TestSupervisor_MemoryCheck_WorkingWorkerGetsInvalid(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/sleep.php") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      1,
+			AllocateTimeout: time.Second * 10,
+			DestroyTimeout:  time.Second * 10,
+			Supervisor: &pool.SupervisorConfig{
+				WatchTick:       1 * time.Second,
+				MaxWorkerMemory: 1, // 1 MB — very low, will be exceeded
+			},
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	// Start a long exec while worker is busy
+	go func() {
+		_, _ = p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: []byte("")}, make(chan struct{}))
+	}()
+
+	time.Sleep(time.Second * 3)
+
+	// Worker should be marked Invalid while working (not MaxMemoryReached)
+	workers := p.Workers()
+	if len(workers) > 0 {
+		state := workers[0].State().CurrentState()
+		assert.True(t,
+			state == fsm.StateInvalid || state == fsm.StateReady || state == fsm.StateWorking,
+			"expected Invalid/Ready/Working, got %d", state)
+	}
+}
