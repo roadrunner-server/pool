@@ -32,7 +32,9 @@ func calculateMaxExecsJitter(maxExecs, jitter uint64, log *slog.Logger) uint64 {
 	random, err := rand.Int(rand.Reader, big.NewInt(int64(jitter))) //nolint:gosec
 
 	if err != nil {
-		log.Debug("jitter calculation error", "error", err, "jitter", jitter)
+		if log != nil {
+			log.Debug("jitter calculation error", "error", err, "jitter", jitter)
+		}
 		return maxExecs
 	}
 

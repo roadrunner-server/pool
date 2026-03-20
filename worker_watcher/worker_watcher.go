@@ -428,7 +428,11 @@ func (ww *WorkerWatcher) wait(w *worker.Process) {
 
 	if w.State().Compare(fsm.StateDestroyed) {
 		// worker was manually destroyed, no need to replace
-		ww.log.Debug("worker destroyed", "pid", w.Pid(), "internal_event_name", events.EventWorkerDestruct.String(), "error", err)
+		if err != nil {
+			ww.log.Debug("worker destroyed", "pid", w.Pid(), "internal_event_name", events.EventWorkerDestruct.String(), "error", err)
+		} else {
+			ww.log.Debug("worker destroyed", "pid", w.Pid(), "internal_event_name", events.EventWorkerDestruct.String())
+		}
 		return
 	}
 

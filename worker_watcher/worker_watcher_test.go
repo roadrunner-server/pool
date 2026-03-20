@@ -42,6 +42,11 @@ func fakeAllocator(t *testing.T, failCount *atomic.Int32) Allocator {
 		if err = cmd.Start(); err != nil {
 			return nil, err
 		}
+		t.Cleanup(func() {
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+		})
 		w.State().Transition(fsm.StateReady)
 		return w, nil
 	}

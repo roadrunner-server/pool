@@ -2,7 +2,6 @@ package pipe
 
 import (
 	"context"
-	"log/slog"
 	"os/exec"
 	"sync"
 	"testing"
@@ -442,7 +441,7 @@ func Benchmark_WorkerPipeTTL(b *testing.B) {
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
 	ctx := b.Context()
 
-	w, err := NewPipeFactory(slog.Default()).SpawnWorkerWithContext(ctx, cmd)
+	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
 	require.NoError(b, err)
 
 	go func() {

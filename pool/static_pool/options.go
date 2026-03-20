@@ -6,9 +6,9 @@ import (
 
 type Options func(p *Pool)
 
-func WithLogger(z *slog.Logger) Options {
+func WithLogger(logger *slog.Logger) Options {
 	return func(p *Pool) {
-		p.log = z
+		p.log = logger
 	}
 }
 

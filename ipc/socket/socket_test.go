@@ -110,7 +110,7 @@ func Test_Tcp_StartError(t *testing.T) {
 
 func Test_Tcp_Failboot(t *testing.T) {
 	time.Sleep(time.Millisecond * 10) // to ensure free socket
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*20)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*5)
 	defer cancel()
 
 	ls, err := net.Listen("tcp", "127.0.0.1:9007")

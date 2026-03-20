@@ -38,7 +38,7 @@ Transition moves worker from one state to another
 func (s *Fsm) Transition(to int64) {
 	err := s.recognizer(to)
 	if err != nil {
-		s.log.Debug("transition info, this is not an error", "debug", err.Error())
+		s.log.Debug("transition info, this is not an error", "reason", err.Error())
 		return
 	}
 

@@ -264,7 +264,7 @@ func Test_Unix_Failboot2(t *testing.T) {
 
 	cmd := exec.Command("php", "../../tests/failboot.php")
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*15)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*5)
 	defer cancel()
 
 	w, err := NewSocketServer(ls, log).SpawnWorkerWithContext(ctx, cmd)

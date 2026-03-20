@@ -722,14 +722,13 @@ func TestSupervisor_TTL_WorkingWorker_GetsInvalid(t *testing.T) {
 
 	// Worker should be marked as Invalid (not TTLReached)
 	workers := p.Workers()
-	if len(workers) > 0 {
-		state := workers[0].State().CurrentState()
-		// Worker should either be Invalid (marked by supervisor) or already replaced
-		// If replaced, it should be in Ready state with a different PID
-		assert.True(t,
-			state == fsm.StateInvalid || state == fsm.StateReady || state == fsm.StateWorking,
-			"expected Invalid/Ready/Working, got %d", state)
-	}
+	require.NotEmpty(t, workers)
+	state := workers[0].State().CurrentState()
+	// Worker should either be Invalid (marked by supervisor) or already replaced
+	// If replaced, it should be in Ready state with a different PID
+	assert.True(t,
+		state == fsm.StateInvalid || state == fsm.StateReady || state == fsm.StateWorking,
+		"expected Invalid/Ready/Working, got %d", state)
 }
 
 // TestSupervisor_IdleTTL_SkipsNeverUsedWorker verifies that workers with LastUsed==0
@@ -799,10 +798,9 @@ func TestSupervisor_MemoryCheck_WorkingWorkerGetsInvalid(t *testing.T) {
 
 	// Worker should be marked Invalid while working (not MaxMemoryReached)
 	workers := p.Workers()
-	if len(workers) > 0 {
-		state := workers[0].State().CurrentState()
-		assert.True(t,
-			state == fsm.StateInvalid || state == fsm.StateReady || state == fsm.StateWorking,
-			"expected Invalid/Ready/Working, got %d", state)
-	}
+	require.NotEmpty(t, workers)
+	state := workers[0].State().CurrentState()
+	assert.True(t,
+		state == fsm.StateInvalid || state == fsm.StateReady || state == fsm.StateWorking,
+		"expected Invalid/Ready/Working, got %d", state)
 }

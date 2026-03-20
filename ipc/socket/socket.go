@@ -164,26 +164,26 @@ func (f *Factory) Close() error {
 	return f.ls.Close()
 }
 
-// waits for Process to connect over socket and returns associated relay of timeout
+// waits for Process to connect over socket and returns associated relay or timeout
 func (f *Factory) findRelayWithContext(ctx context.Context, w *worker.Process) (*socket.Relay, error) {
 	ticker := time.NewTicker(time.Millisecond * 10)
+	defer ticker.Stop()
 	for {
+		// fast path: check relay map immediately
+		rl, ok := f.relays.LoadAndDelete(w.Pid())
+		if ok {
+			return rl.(*socket.Relay), nil
+		}
+
 		select {
 		case <-ctx.Done():
 			return nil, errors.E(errors.Op("findRelayWithContext"), errors.TimeOut)
 		case <-ticker.C:
-			// check for the process exists
+			// check if process still exists
 			_, err := process.NewProcess(int32(w.Pid())) //nolint:gosec
 			if err != nil {
 				return nil, err
 			}
-		default:
-			rl, ok := f.relays.LoadAndDelete(w.Pid())
-			if !ok {
-				continue
-			}
-
-			return rl.(*socket.Relay), nil
 		}
 	}
 }
