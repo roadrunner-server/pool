@@ -3,7 +3,7 @@ module github.com/roadrunner-server/pool/v2
 go 1.26
 
 require (
-	github.com/roadrunner-server/errors v1.4.1
+	github.com/roadrunner-server/errors v1.5.0
 	github.com/roadrunner-server/events v1.0.1
 	github.com/roadrunner-server/goridge/v4 v4.0.0-beta.1
 	github.com/shirou/gopsutil v3.21.11+incompatible
