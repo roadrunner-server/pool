@@ -436,6 +436,12 @@ func (ww *WorkerWatcher) wait(w *worker.Process) {
 		return
 	}
 
+	// The worker crashed unexpectedly. It was removed from the workers map above but is still
+	// parked in the container channel (now in StateErrored). Evict it so container.Len() stays
+	// consistent with numWorkers; otherwise Destroy/Reset, which wait for
+	// numWorkers == container.Len(), never settle and hang until their timeout fires.
+	w.Callback()
+
 	err = ww.Allocate()
 	if err != nil {
 		// watcher is shutting down, no need to track the counter

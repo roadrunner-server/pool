@@ -280,3 +280,74 @@ func TestWorkerWatcher_Allocate_StopChExitsRetryLoop(t *testing.T) {
 	assert.True(t, errors.Is(errors.WatcherStopped, err))
 	assert.Less(t, elapsed, 3*time.Second, "should exit promptly via stopCh")
 }
+
+// TestWorkerWatcher_Wait_EvictsCrashedWorkerFromContainer verifies that when a worker
+// crashes and is replaced, the dead worker is evicted from the container channel (not only
+// from the workers map). Otherwise container.Len() stays at numWorkers+1, and Destroy/Reset
+// — which wait for numWorkers == container.Len() — never settle and hang until their timeout.
+func TestWorkerWatcher_Wait_EvictsCrashedWorkerFromContainer(t *testing.T) {
+	log := slog.Default()
+
+	// mkCmd starts a real (sleep) worker process and returns the worker plus its command, so
+	// the caller can kill the OS process directly — worker.Pid() is 0 without the goridge
+	// handshake, so signalling it would target the wrong process. No require.* here: mkCmd is
+	// also called from the watcher goroutine (via the allocator).
+	mkCmd := func() (*worker.Process, *exec.Cmd, error) {
+		cmd := exec.Command("sleep", "100")
+		w, err := worker.InitBaseWorker(cmd)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err = cmd.Start(); err != nil {
+			return nil, nil, err
+		}
+		t.Cleanup(func() { _ = cmd.Process.Kill() })
+		w.State().Transition(fsm.StateReady)
+		return w, cmd, nil
+	}
+
+	// allocated is signalled when the watcher allocates the replacement worker, so the
+	// assertion runs after the death has actually been processed (not before).
+	allocated := make(chan struct{}, 1)
+	ww := NewSyncWorkerWatcher(func() (*worker.Process, error) {
+		w, _, err := mkCmd()
+		if err == nil {
+			select {
+			case allocated <- struct{}{}:
+			default:
+			}
+		}
+		return w, err
+	}, log, 2, 0)
+
+	w1, cmd1, err := mkCmd()
+	require.NoError(t, err)
+	w2, _, err := mkCmd()
+	require.NoError(t, err)
+	require.NoError(t, ww.Watch([]*worker.Process{w1, w2}))
+	require.Equal(t, 2, ww.container.Len())
+
+	// Simulate a crash: kill the worker's OS process so the watcher detects the death and
+	// allocates a replacement.
+	require.NoError(t, cmd1.Process.Kill())
+
+	// Wait until the replacement has been allocated, then let the evict+push settle.
+	select {
+	case <-allocated:
+	case <-time.After(10 * time.Second):
+		t.Error("watcher did not allocate a replacement worker")
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	// The container must hold exactly numWorkers — the dead worker evicted and the replacement
+	// pushed. Before the fix the dead worker lingered in the channel, leaving Len() == 3,
+	// which makes Destroy/Reset hang waiting for numWorkers == container.Len().
+	assert.Equal(t, 2, ww.container.Len(), "crashed worker was not evicted from the container")
+
+	// Mark the survivors destroyed so the per-process kill in t.Cleanup doesn't make the
+	// watcher allocate replacements (which would spawn a cascade or panic on numWorkers==0).
+	ww.workers.Range(func(_, v any) bool {
+		v.(*worker.Process).State().Transition(fsm.StateDestroyed)
+		return true
+	})
+}
