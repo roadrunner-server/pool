@@ -290,7 +290,7 @@ func TestWorkerWatcher_Wait_EvictsCrashedWorkerFromContainer(t *testing.T) {
 
 	// mkCmd starts a real (sleep) worker process and returns the worker plus its command, so
 	// the caller can kill the OS process directly — worker.Pid() is 0 without the goridge
-	// handshake, so signalling it would target the wrong process. No require.* here: mkCmd is
+	// handshake, so signaling it would target the wrong process. No require.* here: mkCmd is
 	// also called from the watcher goroutine (via the allocator).
 	mkCmd := func() (*worker.Process, *exec.Cmd, error) {
 		cmd := exec.Command("sleep", "100")
@@ -306,7 +306,7 @@ func TestWorkerWatcher_Wait_EvictsCrashedWorkerFromContainer(t *testing.T) {
 		return w, cmd, nil
 	}
 
-	// allocated is signalled when the watcher allocates the replacement worker, so the
+	// allocated is signaled when the watcher allocates the replacement worker, so the
 	// assertion runs after the death has actually been processed (not before).
 	allocated := make(chan struct{}, 1)
 	ww := NewSyncWorkerWatcher(func() (*worker.Process, error) {
