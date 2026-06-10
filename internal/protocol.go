@@ -2,6 +2,7 @@ package internal
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 
@@ -56,6 +57,13 @@ func SendControl(rl relay.Relay, payload any) error {
 	return nil
 }
 
+// legacyHint annotates a failed pid exchange with its most likely cause — a
+// worker SDK that still speaks the legacy goridge v3 protocol — so operators
+// get an actionable message instead of a bare "Network: EOF".
+func legacyHint(err error) error {
+	return fmt.Errorf("worker pid handshake failed: %w; if the worker uses an SDK speaking the legacy goridge v3 protocol (e.g. spiral/roadrunner-worker v3.x for PHP), upgrade it to a goridge v4-compatible release", err)
+}
+
 func Pid(rl relay.Relay) (int64, error) {
 	err := SendControl(rl, pidCommand{Pid: os.Getpid()})
 	if err != nil {
@@ -67,7 +75,7 @@ func Pid(rl relay.Relay) (int64, error) {
 
 	err = rl.Receive(fr)
 	if err != nil {
-		return 0, err
+		return 0, legacyHint(err)
 	}
 
 	if fr == nil {
@@ -77,13 +85,13 @@ func Pid(rl relay.Relay) (int64, error) {
 	flags := fr.ReadFlags()
 
 	if flags&frame.CONTROL == 0 {
-		return 0, errors.Str("unexpected response, header is missing, no CONTROL flag")
+		return 0, legacyHint(errors.Str("unexpected response, header is missing, no CONTROL flag"))
 	}
 
 	link := &pidCommand{}
 	err = json.Unmarshal(fr.Payload(), link)
 	if err != nil {
-		return 0, err
+		return 0, legacyHint(err)
 	}
 
 	if link.Pid <= 0 {
