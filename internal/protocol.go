@@ -57,11 +57,11 @@ func SendControl(rl relay.Relay, payload any) error {
 	return nil
 }
 
-// legacyHint annotates a failed pid exchange with its most likely cause — a
-// worker SDK that still speaks the legacy goridge v3 protocol — so operators
-// get an actionable message instead of a bare "Network: EOF".
+// legacyHint annotates a failed pid exchange with its two likely causes — the
+// worker crashed on startup, or it speaks the legacy goridge v3 protocol — so
+// operators get an actionable message instead of a bare "Network: EOF".
 func legacyHint(err error) error {
-	return fmt.Errorf("worker pid handshake failed: %w; if the worker uses an SDK speaking the legacy goridge v3 protocol (e.g. spiral/roadrunner-worker v3.x for PHP), upgrade it to a goridge v4-compatible release", err)
+	return fmt.Errorf("worker pid handshake failed: %w; the worker exited or replied with an unrecognized frame — check the worker logs for startup errors, and if the worker uses an SDK speaking the legacy goridge v3 protocol (e.g. spiral/roadrunner-worker v3.x for PHP), upgrade it to a goridge v4-compatible release", err)
 }
 
 func Pid(rl relay.Relay) (int64, error) {
