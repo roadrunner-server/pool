@@ -8,7 +8,7 @@ require (
 	github.com/roadrunner-server/goridge/v4 v4.0.0-beta.2
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/sync v0.20.0
+	golang.org/x/sync v0.21.0
 )
 
 require (
