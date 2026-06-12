@@ -97,8 +97,6 @@ func (da *dynAllocator) addMoreWorkers() {
 		return
 	}
 
-	// we're starting from the 1 because we already allocated one worker which would be released in the Exec function
-	// i < da.spawnRate - we can't allocate more workers than the spawn rate
 	for range da.spawnRate {
 		// spawn as many workers as the user specified in the spawn rate configuration, but not more than max workers
 		if da.currAllocated.Load() >= da.maxWorkers {

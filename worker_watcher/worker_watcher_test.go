@@ -26,8 +26,7 @@ func alwaysFailAllocator() Allocator {
 // fakeAllocator returns an allocator that fails failCount times then succeeds.
 // Counter semantics: Store(2) means "fail twice" because Add(-1) returns the new value,
 // so call 1 returns 1 (>=0, fail), call 2 returns 0 (>=0, fail), call 3 returns -1 (<0, succeed).
-// Workers are created with a running "sleep" process so Kill won't panic.
-// Note: workers won't have a relay, so Stop() will panic — tests must avoid Stop paths.
+// Workers are created with a running "sleep" process so Kill() and Stop() operate on a real pid.
 func fakeAllocator(t *testing.T, failCount *atomic.Int32) Allocator {
 	t.Helper()
 	return func() (*worker.Process, error) {
@@ -43,6 +42,11 @@ func fakeAllocator(t *testing.T, failCount *atomic.Int32) Allocator {
 			return nil, err
 		}
 		t.Cleanup(func() {
+			// mark Destroyed first: a watched worker would otherwise be respawned
+			// by the wait() goroutine after the kill, leaking a process.
+			// No cmd.Wait() here: the watcher's wait() goroutine owns the reaping
+			// and exec.Cmd.Wait is not safe to call concurrently.
+			w.State().Transition(fsm.StateDestroyed)
 			if cmd.Process != nil {
 				_ = cmd.Process.Kill()
 			}
@@ -53,14 +57,17 @@ func fakeAllocator(t *testing.T, failCount *atomic.Int32) Allocator {
 }
 
 // createStartedWorker creates a worker with a running process in the specified state.
-// Note: no relay attached — Kill() works but Stop() will panic.
 func createStartedWorker(t *testing.T, state int64) *worker.Process {
 	t.Helper()
 	cmd := exec.Command("sleep", "100")
 	w, err := worker.InitBaseWorker(cmd)
 	require.NoError(t, err)
 	require.NoError(t, cmd.Start())
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	t.Cleanup(func() {
+		w.State().Transition(fsm.StateDestroyed)
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
 
 	switch state {
 	case fsm.StateReady:
@@ -77,7 +84,7 @@ func createStartedWorker(t *testing.T, state int64) *worker.Process {
 	return w
 }
 
-// shutdownWatcher signals the watcher to stop (without calling Destroy which needs relay).
+// shutdownWatcher signals the watcher to stop (without the full Destroy rendezvous).
 func shutdownWatcher(ww *WorkerWatcher) {
 	ww.container.Destroy()
 	select {
@@ -175,8 +182,8 @@ func TestWorkerWatcher_Take_FastPath_ReadyWorker(t *testing.T) {
 }
 
 // TestWorkerWatcher_Take_SlowPath_SkipsBadWorkers verifies Take skips non-Ready workers
-// and kills them. The first non-Ready worker triggers the slow path via Kill() (works without relay).
-// Subsequent bad workers are killed via Stop() — we avoid that by only having one bad + one good.
+// and kills them. The first non-Ready worker triggers the slow path via Kill(),
+// subsequent bad workers are stopped via Stop().
 func TestWorkerWatcher_Take_SlowPath_SkipsBadWorkers(t *testing.T) {
 	log := slog.Default()
 	ww := NewSyncWorkerWatcher(alwaysFailAllocator(), log, 2, 0)
@@ -212,6 +219,39 @@ func TestWorkerWatcher_Release_ReadyState_PushesToContainer(t *testing.T) {
 	ww.Release(w)
 
 	assert.Equal(t, initialLen+1, ww.container.Len(), "ready worker should be pushed to container")
+}
+
+// TestWorkerWatcher_Release_BadState_StopsWorker verifies releasing a non-Ready worker
+// gracefully stops it (SIGTERM, no relay involved).
+func TestWorkerWatcher_Release_BadState_StopsWorker(t *testing.T) {
+	log := slog.Default()
+	ww := NewSyncWorkerWatcher(alwaysFailAllocator(), log, 1, 0)
+	t.Cleanup(func() { shutdownWatcher(ww) })
+
+	// built inline (not via createStartedWorker): this test runs its own Wait
+	// goroutine, which must be the only cmd.Wait caller
+	cmd := exec.Command("sleep", "100")
+	w, err := worker.InitBaseWorker(cmd)
+	require.NoError(t, err)
+	require.NoError(t, w.Start())
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	w.State().Transition(fsm.StateReady)
+	w.State().Transition(fsm.StateTTLReached)
+
+	waitErr := make(chan error, 1)
+	go func() {
+		waitErr <- w.Wait()
+	}()
+
+	ww.Release(w)
+
+	select {
+	case <-waitErr:
+		// the process exited on SIGTERM
+		assert.Equal(t, fsm.StateStopped, w.State().CurrentState())
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker was not stopped on release")
+	}
 }
 
 // TestWorkerWatcher_Take_AfterDestroy verifies Take returns WatcherStopped after container is destroyed.

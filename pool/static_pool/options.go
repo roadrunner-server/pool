@@ -12,12 +12,6 @@ func WithLogger(logger *slog.Logger) Options {
 	}
 }
 
-func WithQueueSize(l uint64) Options {
-	return func(p *Pool) {
-		p.maxQueueSize.Store(l)
-	}
-}
-
 func WithNumWorkers(l uint64) Options {
 	return func(p *Pool) {
 		p.cfg.NumWorkers = l
