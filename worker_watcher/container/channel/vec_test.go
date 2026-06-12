@@ -17,7 +17,7 @@ import (
 // helper to create a simple worker for testing
 func createTestWorker(t *testing.T) *worker.Process {
 	t.Helper()
-	cmd := exec.Command("php", "-v")
+	cmd := exec.Command("sleep", "100")
 	w, err := worker.InitBaseWorker(cmd)
 	require.NoError(t, err)
 	return w

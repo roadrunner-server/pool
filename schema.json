@@ -6,11 +6,6 @@
 	"type": "object",
 	"additionalProperties": false,
 	"properties": {
-		"debug": {
-			"description": "In debug mode, workers are created immediately before RR passes jobs to them, exiting once the job completes. This defeats the purpose of a worker pool and should only be used during development.",
-			"type": "boolean",
-			"default": false
-		},
 		"command": {
 			"type": "string",
 			"description": "The command to use for the pool. If defined, this will override the value in `server.command` for this pool only.",
@@ -24,18 +19,6 @@
 			"minimum": 0,
 			"default": 0
 		},
-		"max_jobs": {
-			"description": "The maximum number of executions a worker may perform before it is terminated and a new process is started. Zero or undefined means no limit.",
-			"type": "integer",
-			"minimum": 0,
-			"default": 0
-		},
-		"max_queue_size": {
-			"description": "The maximum size of the internal job queue. This is the limit of pending, incoming jobs that await worker allocation. After the limit is reached, all additional jobs will be rejected with an error. Zero or undefined means no limit.",
-			"type": "integer",
-			"minimum": 0,
-			"default": 0
-		},
 		"allocate_timeout": {
 			"description": "The maximum duration an incoming job is allowed to wait for a worker. Zero or undefined defaults to 60s.",
 			"$ref": "#/$defs/duration",
@@ -43,11 +26,6 @@
 		},
 		"reset_timeout": {
 			"description": "The maximum duration to wait for the `pool.Reset` operation (`./rr reset`) to complete. Zero or undefined defaults to 60s.",
-			"$ref": "#/$defs/duration",
-			"default": "60s"
-		},
-		"stream_timeout": {
-			"description": "The maximum duration to wait for stream cancellation. Zero or undefined defaults to 60s.",
 			"$ref": "#/$defs/duration",
 			"default": "60s"
 		},
@@ -70,7 +48,7 @@
 					"default": 10
 				},
 				"spawn_rate": {
-					"description": "The maximum number of workers that may be spawned per NoFreeWorkers error (limited to `max_workers`).",
+					"description": "The maximum number of workers that may be spawned per scale-up trigger (limited to `max_workers`).",
 					"type": "integer",
 					"minimum": 1,
 					"default": 5
@@ -108,11 +86,6 @@
 					"type": "integer",
 					"minimum": 0,
 					"default": 0
-				},
-				"exec_ttl": {
-					"description": "The maximum duration any job (hard limit) is allowed to take. If a job exceeds this time limit, the worker processing it will be terminated. Zero or undefined means no limit.",
-					"$ref": "#/$defs/duration",
-					"default": "0s"
 				}
 			}
 		}

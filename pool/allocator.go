@@ -2,43 +2,37 @@ package pool
 
 import (
 	"context"
-	"os/exec"
-	"time"
-
 	"log/slog"
 
 	"github.com/roadrunner-server/errors"
 	"github.com/roadrunner-server/events"
+	"github.com/roadrunner-server/pool/v2/fsm"
 	"github.com/roadrunner-server/pool/v2/worker"
 	"golang.org/x/sync/errgroup"
 )
 
-// Factory is responsible for wrapping given command into tasks WorkerProcess.
-type Factory interface {
-	// SpawnWorkerWithContext creates a new WorkerProcess process based on given command with context.
-	// Process must not be started.
-	SpawnWorkerWithContext(context.Context, *exec.Cmd, ...worker.Options) (*worker.Process, error)
-	// Close the factory and underlying connections.
-	Close() error
-}
-
-// NewPoolAllocator initializes allocator of the workers
-func NewPoolAllocator(ctx context.Context, timeout time.Duration, maxExecs uint64, factory Factory, cmd Command, command []string, log *slog.Logger) func() (*worker.Process, error) {
+// NewPoolAllocator initializes allocator of the workers: plain process spawn, no IPC handshake.
+func NewPoolAllocator(ctx context.Context, cmd Command, command []string, log *slog.Logger) func() (*worker.Process, error) {
 	return func() (*worker.Process, error) {
-		ctxT, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
+		// pool is being shut down / boot context canceled
+		if err := ctx.Err(); err != nil {
+			return nil, errors.E(errors.TimeOut, err)
+		}
 
-		w, err := factory.SpawnWorkerWithContext(ctxT, cmd(command), worker.WithLog(log), worker.WithMaxExecs(maxExecs))
+		w, err := worker.InitBaseWorker(cmd(command), worker.WithLog(log))
 		if err != nil {
-			// context deadline
-			if errors.Is(errors.TimeOut, err) {
-				return nil, errors.Str("failed to spawn a worker, possible reasons: https://docs.roadrunner.dev/error-codes/allocate-timeout")
-			}
 			return nil, err
 		}
 
-		// wrap sync worker
-		log.Debug("worker is allocated", "pid", w.Pid(), "max_execs", w.MaxExecs(), "internal_event_name", events.EventWorkerConstruct.String())
+		err = w.Start()
+		if err != nil {
+			return nil, err
+		}
+
+		// readiness == process started; protocol-level readiness is plugin-side (the worker dials in)
+		w.State().Transition(fsm.StateReady)
+
+		log.Debug("worker is allocated", "pid", w.Pid(), "internal_event_name", events.EventWorkerConstruct.String())
 		return w, nil
 	}
 }
