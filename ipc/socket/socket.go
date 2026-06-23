@@ -44,8 +44,7 @@ func NewSocketServer(ls net.Listener, log *slog.Logger) *Factory {
 		err := f.listen()
 		// there is no logger here, use fmt
 		if err != nil {
-			var opErr *net.OpError
-			if stderr.As(err, &opErr) {
+			if opErr, ok := stderr.AsType[*net.OpError](err); ok {
 				if opErr.Err.Error() == "use of closed network connection" {
 					return
 				}
