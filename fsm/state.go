@@ -18,7 +18,7 @@ const (
 	StateDestroyed
 	// StateMaxJobsReached State of worker, when it reached executions limit
 	StateMaxJobsReached
-	// StateErrored - error StateImpl (can't be used).
+	// StateErrored - worker is in an error state (can't be used).
 	StateErrored
 	// StateIdleTTLReached - worker idle TTL was reached
 	StateIdleTTLReached

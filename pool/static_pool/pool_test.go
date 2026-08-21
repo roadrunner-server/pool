@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
@@ -1344,4 +1345,69 @@ func TestPool_ExecEmptyPayload(t *testing.T) {
 	_, err = p.Exec(t.Context(), &payload.Payload{Body: nil, Context: nil}, make(chan struct{}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "payload can not be empty")
+}
+
+func Test_StaticPool_RepeatedDestroy_ReturnsQuickly(t *testing.T) {
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      1,
+			AllocateTimeout: time.Second * 5,
+			DestroyTimeout:  time.Second * 5,
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+
+	p.Destroy(t.Context())
+
+	start := time.Now()
+	p.Destroy(t.Context())
+	assert.Less(t, time.Since(start), time.Second*2, "repeated Destroy must return quickly")
+}
+
+func Test_StaticPool_DestroyAbortsInflightSpawn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pgrep is not available on windows")
+	}
+	before := childPids(t)
+
+	var spawnCalls atomic.Int32
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd {
+			if spawnCalls.Add(1) == 1 {
+				return exec.Command("php", "../../tests/client.php", "echo", "pipes")
+			}
+			// starts but never completes the pid handshake
+			return exec.Command("sleep", "60")
+		},
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			NumWorkers:      1,
+			AllocateTimeout: time.Second * 8,
+			DestroyTimeout:  time.Second * 10,
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+
+	addErr := make(chan error, 1)
+	go func() { addErr <- p.AddWorker() }()
+
+	// let AddWorker block in the pid handshake
+	time.Sleep(time.Millisecond * 300)
+
+	start := time.Now()
+	p.Destroy(t.Context())
+	elapsed := time.Since(start)
+
+	assert.Less(t, elapsed, time.Second*4, "Destroy must abort an in-flight spawn")
+	require.Error(t, <-addErr)
+
+	assert.Eventually(t, func() bool {
+		return len(newChildren(t, before)) == 0
+	}, time.Second*5, time.Millisecond*250, "the aborted spawn must be reaped")
 }

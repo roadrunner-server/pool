@@ -30,7 +30,11 @@ type State struct {
 // WorkerProcessState creates a new worker state definition.
 func WorkerProcessState(w *worker.Process) (*State, error) {
 	const op = errors.Op("worker_process_state")
-	p, _ := process.NewProcess(int32(w.Pid())) //nolint:gosec
+	p, err := process.NewProcess(int32(w.Pid())) //nolint:gosec
+	if err != nil {
+		return nil, errors.E(op, err)
+	}
+
 	i, err := p.MemoryInfo()
 	if err != nil {
 		return nil, errors.E(op, err)
@@ -38,7 +42,7 @@ func WorkerProcessState(w *worker.Process) (*State, error) {
 
 	percent, err := p.CPUPercent()
 	if err != nil {
-		return nil, err
+		return nil, errors.E(op, err)
 	}
 
 	return &State{

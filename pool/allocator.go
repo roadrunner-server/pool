@@ -22,7 +22,7 @@ type Factory interface {
 	Close() error
 }
 
-// NewPoolAllocator initializes allocator of the workers
+// NewPoolAllocator initializes allocator of the workers.
 func NewPoolAllocator(ctx context.Context, timeout time.Duration, maxExecs uint64, factory Factory, cmd Command, command []string, log *slog.Logger) func() (*worker.Process, error) {
 	return func() (*worker.Process, error) {
 		ctxT, cancel := context.WithTimeout(ctx, timeout)
@@ -43,14 +43,14 @@ func NewPoolAllocator(ctx context.Context, timeout time.Duration, maxExecs uint6
 	}
 }
 
-// AllocateParallel allocate required number of stack
+// AllocateParallel allocates the requested number of workers concurrently. On any failure the
+// already spawned workers are killed and an error is returned.
 func AllocateParallel(numWorkers uint64, allocator func() (*worker.Process, error)) ([]*worker.Process, error) {
 	const op = errors.Op("static_pool_allocate_workers")
 
 	workers := make([]*worker.Process, numWorkers)
 	eg := new(errgroup.Group)
 
-	// constant number of stack simplify logic
 	for i := range numWorkers {
 		eg.Go(func() error {
 			w, err := allocator()

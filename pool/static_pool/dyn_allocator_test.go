@@ -2,7 +2,9 @@ package static_pool
 
 import (
 	"os/exec"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -73,19 +75,19 @@ func Test_DynAllocatorManyReq(t *testing.T) {
 	assert.NotNil(t, np)
 
 	wg := &sync.WaitGroup{}
-	go func() {
-		for range 1000 {
-			wg.Go(func() {
-				r, erre := np.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
-				if erre != nil {
-					t.Log("failed request: ", erre.Error())
-					return
-				}
-				resp := <-r
+	for range 1000 {
+		wg.Go(func() {
+			r, erre := np.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+			if erre != nil {
+				t.Log("failed request: ", erre.Error())
+				return
+			}
+			resp := <-r
+			if resp.Error() == nil {
 				assert.Equal(t, []byte("hello"), resp.Body())
-			})
-		}
-	}()
+			}
+		})
+	}
 
 	go func() {
 		for range 10 {
@@ -143,11 +145,20 @@ func Test_DynamicPool_OverMax(t *testing.T) {
 	})
 	wg.Go(func() {
 		// sleep to ensure the first request is being processed first
-		// this request should trigger dynamic allocation attempt and return an error
+		// this request triggers the dynamic allocation and must be served by the spawned worker
 		time.Sleep(time.Second)
 		t.Log("sending request 2")
-		_, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
-		require.Error(t, err)
+		r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		if !assert.NoError(t, err, "request that triggered the scale-up must be served") {
+			return
+		}
+		select {
+		case resp := <-r:
+			assert.Equal(t, []byte("hello world"), resp.Body())
+			t.Log("request 2 finished")
+		case <-time.After(time.Second * 20):
+			assert.Fail(t, "timeout")
+		}
 	})
 
 	t.Log("waiting for the requests 1 and 2")
@@ -233,11 +244,23 @@ func Test_DynamicPool(t *testing.T) {
 
 	wg.Go(func() {
 		time.Sleep(time.Second)
-		_, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
-		require.Error(t, err)
+		r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		if !assert.NoError(t, err, "request that triggered the scale-up must be served") {
+			return
+		}
+		select {
+		case resp := <-r:
+			assert.Equal(t, []byte("hello world"), resp.Body())
+		case <-time.After(time.Second * 20):
+			assert.Fail(t, "timeout")
+		}
 	})
 
 	wg.Wait()
+
+	// one spawn batch of SpawnRate=2 workers on top of the single base worker
+	assert.Equal(t, uint64(2), p.NumDynamic())
+	assert.Len(t, p.Workers(), 3)
 
 	time.Sleep(time.Second * 20)
 	require.Len(t, p.Workers(), 1)
@@ -254,7 +277,7 @@ func Test_DynamicPool_500W(t *testing.T) {
 		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
 			MaxWorkers:  10,
 			IdleTimeout: time.Second * 15,
-			// should be corrected to 10 by RR
+			// bigger than MaxWorkers on purpose: the spawn loop must stop at the MaxWorkers cap
 			SpawnRate: 11,
 		},
 	}
@@ -288,11 +311,23 @@ func Test_DynamicPool_500W(t *testing.T) {
 
 	wg.Go(func() {
 		time.Sleep(time.Second * 1)
-		_, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
-		require.Error(t, err)
+		r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
+		if !assert.NoError(t, err, "request that triggered the scale-up must be served") {
+			return
+		}
+		select {
+		case resp := <-r:
+			assert.Equal(t, []byte("hello world"), resp.Body())
+		case <-time.After(time.Second * 20):
+			assert.Fail(t, "timeout")
+		}
 	})
 
 	wg.Wait()
+
+	// the spawn batch is capped by MaxWorkers, not SpawnRate
+	assert.Equal(t, uint64(10), p.NumDynamic())
+	assert.Len(t, p.Workers(), 11)
 
 	time.Sleep(time.Second * 30)
 
@@ -437,6 +472,168 @@ func Test_DynAllocator_ReallocationCycle(t *testing.T) {
 
 	assert.Equal(t, uint64(0), p.NumDynamic(), "cycle 2: all dynamic workers should be deallocated")
 	assert.Len(t, p.Workers(), 2, "cycle 2: should return to base count after re-allocation")
+}
+
+func Test_DynAllocator_TriggeringRequestIsServed(t *testing.T) {
+	cfg := &pool.Config{
+		NumWorkers:      1,
+		AllocateTimeout: time.Second * 2,
+		DestroyTimeout:  time.Second * 10,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  2,
+			SpawnRate:   1,
+			IdleTimeout: time.Second * 10,
+		},
+	}
+
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/client.php", "delay", "pipes")
+		},
+		pipe.NewPipeFactory(slog.Default()),
+		cfg,
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	// occupy the single base worker for 4 seconds
+	longDone := make(chan struct{})
+	go func() {
+		defer close(longDone)
+		r, errl := p.Exec(t.Context(), &payload.Payload{Body: []byte("4000")}, make(chan struct{}))
+		assert.NoError(t, errl)
+		if errl == nil {
+			<-r
+		}
+	}()
+
+	// let the first request take the worker
+	time.Sleep(time.Millisecond * 300)
+
+	r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("100")}, make(chan struct{}))
+	require.NoError(t, err, "the request that triggered dynamic scale-up must be served, not failed")
+	resp := <-r
+	require.NoError(t, resp.Error())
+
+	assert.Equal(t, uint64(1), p.NumDynamic())
+	assert.Len(t, p.Workers(), 2)
+
+	<-longDone
+}
+
+func Test_DynAllocator_BurstWithinCapacityFullyAbsorbed(t *testing.T) {
+	cfg := &pool.Config{
+		NumWorkers:      2,
+		AllocateTimeout: time.Second * 3,
+		DestroyTimeout:  time.Second * 10,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  4,
+			SpawnRate:   4,
+			IdleTimeout: time.Second * 10,
+		},
+	}
+
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/client.php", "delay", "pipes")
+		},
+		pipe.NewPipeFactory(slog.Default()),
+		cfg,
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	var failed atomic.Uint64
+	wg := &sync.WaitGroup{}
+	// 6 concurrent 5s requests against 2 base workers: 4 waiters must be absorbed by scale-up
+	for range 6 {
+		wg.Go(func() {
+			r, erre := p.Exec(t.Context(), &payload.Payload{Body: []byte("5000")}, make(chan struct{}))
+			if erre != nil {
+				failed.Add(1)
+				t.Log("burst request failed:", erre)
+				return
+			}
+			resp := <-r
+			if resp.Error() != nil {
+				failed.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+
+	assert.Equal(t, uint64(0), failed.Load(), "a burst within NumWorkers+MaxWorkers capacity must be fully absorbed")
+	assert.Positive(t, p.NumDynamic(), "the burst must have been absorbed by a scale-up")
+	assert.LessOrEqual(t, p.NumDynamic(), uint64(4))
+}
+
+func Test_DynAllocator_DestroyDuringScaleUp(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pgrep is not available on windows")
+	}
+
+	before := childPids(t)
+
+	cfg := &pool.Config{
+		NumWorkers:      1,
+		AllocateTimeout: time.Second * 2,
+		DestroyTimeout:  time.Second * 10,
+		DynamicAllocatorOpts: &pool.DynamicAllocationOpts{
+			MaxWorkers:  20,
+			SpawnRate:   20,
+			IdleTimeout: time.Second * 10,
+		},
+	}
+
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd {
+			return exec.Command("php", "../../tests/client.php", "delay", "pipes")
+		},
+		pipe.NewPipeFactory(slog.Default()),
+		cfg,
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+
+	wg := &sync.WaitGroup{}
+	// occupy the base worker past the allocate timeout so the waiters really time out
+	wg.Go(func() {
+		r, erre := p.Exec(t.Context(), &payload.Payload{Body: []byte("5000")}, make(chan struct{}))
+		if erre != nil {
+			return
+		}
+		<-r
+	})
+	time.Sleep(time.Millisecond * 100)
+	for range 4 {
+		wg.Go(func() {
+			r, erre := p.Exec(t.Context(), &payload.Payload{Body: []byte("100")}, make(chan struct{}))
+			if erre != nil {
+				return
+			}
+			<-r
+		})
+	}
+
+	time.Sleep(time.Millisecond * 300)
+	p.Destroy(t.Context())
+	wg.Wait()
+
+	// the destroyed pool must have refused the scale-up
+	assert.Equal(t, uint64(0), p.NumDynamic(), "no dynamic workers may be spawned after Destroy")
+	assert.Empty(t, p.Workers())
+
+	assert.Eventually(t, func() bool {
+		return len(newChildren(t, before)) == 0
+	}, time.Second*5, time.Millisecond*250, "no worker processes may survive Destroy")
 }
 
 // ==================== Dynamic Allocator Edge Cases ====================

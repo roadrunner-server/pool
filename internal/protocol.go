@@ -70,10 +70,6 @@ func Pid(rl relay.Relay) (int64, error) {
 		return 0, err
 	}
 
-	if fr == nil {
-		return 0, errors.Str("nil frame received")
-	}
-
 	flags := fr.ReadFlags()
 
 	if flags&frame.CONTROL == 0 {

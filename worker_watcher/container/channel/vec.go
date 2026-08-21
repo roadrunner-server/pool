@@ -21,24 +21,22 @@ type Vec struct {
 	workers chan *worker.Process
 }
 
+// MaxWorkers caps the number of workers a single pool can hold; it is also the capacity of
+// the container channel.
+const MaxWorkers = 2048
+
 func NewVector() *Vec {
 	vec := &Vec{
-		// currently, we can have up to 2048 workers in the pool
-		workers: make(chan *worker.Process, 2048),
+		workers: make(chan *worker.Process, MaxWorkers),
 	}
 
 	return vec
 }
 
-// Push is O(1) operation
-// In case of TTL and full channel O(n) worst case, where n is len of the channel
+// Push returns the worker to the container; when the container is full the worker is killed.
 func (v *Vec) Push(w *worker.Process) {
-	// add remove callback
 	select {
 	case v.workers <- w:
-		// default select branch is only possible when dealing with TTL
-		// because in that case, workers in the v.workers channel can be TTL-ed and killed
-		// but presenting in the channel
 	default:
 		// the channel is full
 		_ = w.Kill()
@@ -100,40 +98,28 @@ func (v *Vec) Remove() {
 		2. Violated Get <-> Release operation (how ??)
 	*/
 
+	// drain the vector, keeping healthy workers and killing the rest; while draining, a
+	// reallocated worker might be pushed concurrently, so the push back may find the
+	// channel full
 	for range len(v.workers) {
-		/*
-			We need to drain vector until we found a worker in the Invalid/Killing/Killed/etc states.
-			BUT while we are draining the vector, some worker might be reallocated and pushed into the v.workers
-			so, down by the code, we might have a problem when pushing the new worker to the v.workers
-		*/
 		wrk := <-v.workers
 
 		switch wrk.State().CurrentState() {
 		// good states
 		case fsm.StateWorking, fsm.StateReady:
-			// put the worker back
-			// generally, while send and receive operations are concurrent (from the channel), channel behave
-			// like a FIFO, but when re-sending from the same goroutine it behaves like a FILO
 			select {
 			case v.workers <- wrk:
 				continue
-
-				// all bad states are here
 			default:
-				// kill the worker from the channel
+				// the channel is full; kill the worker
 				wrk.State().Transition(fsm.StateInvalid)
 				_ = wrk.Kill()
 
 				continue
 			}
-			/*
-				Bad states are here.
-			*/
 		default:
-			// kill the current worker (just to be sure it's dead)
-			if wrk != nil {
-				_ = wrk.Kill()
-			}
+			// bad state; make sure the worker is dead
+			_ = wrk.Kill()
 		}
 	}
 }

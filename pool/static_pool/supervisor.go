@@ -10,25 +10,19 @@ import (
 
 const (
 	MB = 1024 * 1024
-
-	// NsecInSec nanoseconds in second
-	NsecInSec int64 = 1000000000
 )
 
 func (sp *Pool) start() {
 	go func() {
-		watchTout := time.NewTicker(sp.cfg.Supervisor.WatchTick)
-		defer watchTout.Stop()
+		watchTout := time.Tick(sp.cfg.Supervisor.WatchTick)
 
 		for {
 			select {
 			case <-sp.stopCh:
 				return
 			// stop here
-			case <-watchTout.C:
-				sp.mu.Lock()
+			case <-watchTout:
 				sp.control()
-				sp.mu.Unlock()
 			}
 		}
 	}()
@@ -37,8 +31,7 @@ func (sp *Pool) start() {
 func (sp *Pool) control() {
 	now := time.Now()
 
-	// MIGHT BE OUTDATED
-	// It's a copy of the Workers pointers
+	// a snapshot copy of the worker pointers
 	workers := sp.Workers()
 
 	for i := range workers {
@@ -79,21 +72,8 @@ func (sp *Pool) control() {
 			continue
 		}
 
-		if sp.cfg.Supervisor.TTL != 0 && now.Sub(workers[i].Created()).Seconds() >= sp.cfg.Supervisor.TTL.Seconds() {
-			/*
-				worker at this point might be in the middle of request execution:
-
-				---> REQ ---> WORKER -----------------> RESP (at this point we should not set the Ready state) ------> | ----> Worker gets between supervisor checks and gets killed in the ww.Release
-											 ^
-				                           TTL Reached, state - invalid                                                |
-																														-----> Worker Stopped here
-			*/
-
-			// if the worker in the StateReady, it means, that it's not working on the request and we can safely stop/kill it
-			// but if the worker in the any other state, we can't stop it, because it might be in the middle of the request execution, instead, we're setting the Invalid state
-			if workers[i].State().Compare(fsm.StateReady) {
-				workers[i].State().Transition(fsm.StateTTLReached)
-			} else {
+		if sp.cfg.Supervisor.TTL != 0 && now.Sub(workers[i].Created()) >= sp.cfg.Supervisor.TTL {
+			if !workers[i].State().TransitionFrom(fsm.StateReady, fsm.StateTTLReached) {
 				workers[i].State().Transition(fsm.StateInvalid)
 			}
 
@@ -102,20 +82,7 @@ func (sp *Pool) control() {
 		}
 
 		if sp.cfg.Supervisor.MaxWorkerMemory != 0 && s.MemoryUsage >= sp.cfg.Supervisor.MaxWorkerMemory*MB {
-			/*
-				worker at this point might be in the middle of request execution:
-
-				---> REQ ---> WORKER -----------------> RESP (at this point we should not set the Ready state) ------> | ----> Worker gets between supervisor checks and get killed in the ww.Release
-											 ^
-				                           TTL Reached, state - invalid                                                |
-																														-----> Worker Stopped here
-			*/
-
-			// if the worker in the StateReady, it means, that it's not working on the request and we can safely stop/kill it
-			// but if the worker in the any other state, we can't stop it, because it might be in the middle of the request execution, instead, we're setting the Invalid state
-			if workers[i].State().Compare(fsm.StateReady) {
-				workers[i].State().Transition(fsm.StateMaxMemoryReached)
-			} else {
+			if !workers[i].State().TransitionFrom(fsm.StateReady, fsm.StateMaxMemoryReached) {
 				workers[i].State().Transition(fsm.StateInvalid)
 			}
 
@@ -123,53 +90,21 @@ func (sp *Pool) control() {
 			continue
 		}
 
-		// firs we check maxWorker idle
+		// idle check: only ready workers accumulate idle time
 		if sp.cfg.Supervisor.IdleTTL != 0 {
-			// then check for the worker state
 			if !workers[i].State().Compare(fsm.StateReady) {
 				continue
 			}
 
-			/*
-				Calculate idle time
-				If worker in the StateReady, we read it LastUsed timestamp as UnixNano uint64
-				2. For example, maxWorkerIdle is equal to 5sec, then, if (time.Now - LastUsed) > maxWorkerIdle
-				we are guessing that the worker overlaps idle time and has to be killed
-			*/
-
-			// 1610530005534416045 lu
-			// lu - now = -7811150814 - nanoseconds
-			// 7.8 seconds
-			// get last used unix nano
+			// last used unix nano; zero means the worker was never used
 			lu := workers[i].State().LastUsed()
-			// worker not used, skip
 			if lu == 0 {
 				continue
 			}
-
-			// convert last used to unixNano and sub time.now to the number of seconds
-			// negative, because lu always in the past, except for the `back to the future` :)
-			res := ((int64(lu) - now.UnixNano()) / NsecInSec) * -1 //nolint:gosec
-
-			// maxWorkerIdle more than diff between now and last used
-			// for example,
-			// After exec worker goes to the rest
-			// And resting for the 5 seconds,
-			// IdleTTL is 1 second.
-			// After the control check, res will be 5, idle is 1
-			// 5-1 = 4, more than 0; YOU ARE FIRED (removed). Done.
-			if int64(sp.cfg.Supervisor.IdleTTL.Seconds())-res <= 0 {
-				/*
-					worker at this point might be in the middle of request execution:
-
-					---> REQ ---> WORKER -----------------> RESP (at this point we should not set the Ready state) ------> | ----> Worker gets between supervisor checks and get killed in the ww.Release
-												 ^
-					                           TTL Reached, state - invalid                                                |
-																															-----> Worker Stopped here
-				*/
-
-				workers[i].State().Transition(fsm.StateIdleTTLReached)
-				sp.log.Debug("idle_ttl", "reason", "idle ttl is reached", "pid", workers[i].Pid(), "internal_event_name", events.EventTTL.String())
+			if now.Sub(time.Unix(0, int64(lu))) >= sp.cfg.Supervisor.IdleTTL { //nolint:gosec
+				if workers[i].State().TransitionFrom(fsm.StateReady, fsm.StateIdleTTLReached) {
+					sp.log.Debug("idle_ttl", "reason", "idle ttl is reached", "pid", workers[i].Pid(), "internal_event_name", events.EventTTL.String())
+				}
 			}
 		}
 	}

@@ -204,3 +204,25 @@ func TestFSM_RegisterExec_Concurrent(t *testing.T) {
 
 	assert.Equal(t, uint64(goroutines*execsPerGoroutine), f.NumExecs())
 }
+
+func Test_StateString_ExecTTLReached(t *testing.T) {
+	st := NewFSM(StateExecTTLReached, slog.Default())
+	assert.Equal(t, "execTTLReached", st.String())
+}
+
+func Test_TransitionFrom(t *testing.T) {
+	st := NewFSM(StateReady, slog.Default())
+
+	// wrong expected state: no transition happens
+	assert.False(t, st.TransitionFrom(StateWorking, StateTTLReached))
+	assert.Equal(t, StateReady, st.CurrentState())
+
+	// matching expected state: transition happens atomically
+	assert.True(t, st.TransitionFrom(StateReady, StateTTLReached))
+	assert.Equal(t, StateTTLReached, st.CurrentState())
+
+	// invalid transition target is refused even from the matching state
+	st2 := NewFSM(StateDestroyed, slog.Default())
+	assert.False(t, st2.TransitionFrom(StateDestroyed, StateReady))
+	assert.Equal(t, StateDestroyed, st2.CurrentState())
+}

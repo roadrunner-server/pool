@@ -327,8 +327,7 @@ func TestSupervisedPool_TTL_WorkerRestarted(t *testing.T) {
 		Context: []byte(""),
 		Body:    []byte("foo"),
 	}, make(chan struct{}))
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	resp := <-respCh
 
 	assert.Equal(t, string(resp.Body()), "hello world")
@@ -387,7 +386,7 @@ func TestSupervisedPool_Idle(t *testing.T) {
 		Context: []byte(""),
 		Body:    []byte("foo"),
 	}, make(chan struct{}))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	resp := <-respCh
 
@@ -438,7 +437,7 @@ func TestSupervisedPool_IdleTTL_StateAfterTimeout(t *testing.T) {
 		Context: []byte(""),
 		Body:    []byte("foo"),
 	}, make(chan struct{}))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	resp := <-respCh
 
@@ -489,7 +488,7 @@ func TestSupervisedPool_ExecTTL_OK(t *testing.T) {
 		Context: []byte(""),
 		Body:    []byte("foo"),
 	}, make(chan struct{}))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	resp := <-respCh
 
@@ -533,7 +532,7 @@ func TestSupervisedPool_ShouldRespond(t *testing.T) {
 		Context: []byte(""),
 		Body:    []byte("foo"),
 	}, make(chan struct{}))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	resp := <-respCh
 
@@ -576,7 +575,7 @@ func TestSupervisedPool_MaxMemoryReached(t *testing.T) {
 		Context: []byte(""),
 		Body:    []byte("foo"),
 	}, make(chan struct{}))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	resp := <-respCh
 
@@ -803,4 +802,45 @@ func TestSupervisor_MemoryCheck_WorkingWorkerGetsInvalid(t *testing.T) {
 	assert.True(t,
 		state == fsm.StateInvalid || state == fsm.StateReady || state == fsm.StateWorking,
 		"expected Invalid/Ready/Working, got %d", state)
+}
+
+func Test_SupervisedPool_SubSecondIdleTTL(t *testing.T) {
+	cfg := &pool.Config{
+		NumWorkers:      1,
+		AllocateTimeout: time.Second * 5,
+		DestroyTimeout:  time.Second * 5,
+		Supervisor: &pool.SupervisorConfig{
+			WatchTick: time.Millisecond * 100,
+			IdleTTL:   time.Millisecond * 800,
+		},
+	}
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
+		pipe.NewPipeFactory(slog.Default()),
+		cfg,
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
+	require.NoError(t, err)
+	<-r
+
+	pidBefore := p.Workers()[0].Pid()
+
+	// several supervisor ticks, but well under the idle TTL
+	time.Sleep(time.Millisecond * 400)
+
+	workers := p.Workers()
+	require.Len(t, workers, 1)
+	assert.Equal(t, pidBefore, workers[0].Pid(), "worker must survive idle time below idle_ttl")
+	assert.True(t, workers[0].State().Compare(fsm.StateReady), "worker must stay ready below idle_ttl")
+
+	// exceed the idle TTL and confirm the worker is recycled
+	assert.Eventually(t, func() bool {
+		ws := p.Workers()
+		return len(ws) == 1 && ws[0].Pid() != pidBefore
+	}, time.Second*5, time.Millisecond*100, "worker must be recycled after idle_ttl")
 }

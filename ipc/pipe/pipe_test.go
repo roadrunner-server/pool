@@ -2,7 +2,11 @@ package pipe
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -459,4 +463,36 @@ func Benchmark_WorkerPipeTTL(b *testing.B) {
 	b.Cleanup(func() {
 		assert.NoError(b, w.Stop())
 	})
+}
+
+func childPids(t *testing.T) map[string]struct{} {
+	t.Helper()
+	out, _ := exec.Command("pgrep", "-P", strconv.Itoa(os.Getpid())).Output() //nolint:gosec
+	pids := map[string]struct{}{}
+	for p := range strings.FieldsSeq(string(out)) {
+		pids[p] = struct{}{}
+	}
+	return pids
+}
+
+func Test_Pipe_SpawnTimeout_ReapsWorker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pgrep is not available on windows")
+	}
+	before := childPids(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+	defer cancel()
+
+	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, exec.Command("php", "../../tests/client.php", "echo", "pipes"))
+	require.Error(t, err)
+	require.Nil(t, w)
+
+	assert.Eventually(t, func() bool {
+		for p := range childPids(t) {
+			if _, ok := before[p]; !ok {
+				return false
+			}
+		}
+		return true
+	}, time.Second*3, time.Millisecond*100, "a worker spawned past the context deadline must be reaped")
 }

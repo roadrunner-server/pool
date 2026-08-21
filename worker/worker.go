@@ -2,6 +2,7 @@ package worker
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	stderr "errors"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,7 +67,7 @@ type wexec struct {
 // InitBaseWorker creates new Process over given exec.cmd.
 func InitBaseWorker(cmd *exec.Cmd, options ...Options) (*Process, error) {
 	if cmd.Process != nil {
-		return nil, fmt.Errorf("can't attach to running process")
+		return nil, errors.Str("can't attach to running process")
 	}
 
 	w := &Process{
@@ -97,9 +97,7 @@ func InitBaseWorker(cmd *exec.Cmd, options ...Options) (*Process, error) {
 		options[i](w)
 	}
 
-	if w.log == nil {
-		w.log = slog.Default()
-	}
+	w.log = cmp.Or(w.log, slog.Default())
 
 	w.fsm = fsm.NewFSM(fsm.StateInactive, w.log)
 
@@ -190,8 +188,7 @@ func (w *Process) Start() error {
 // to find or Start the script.
 func (w *Process) Wait() error {
 	const op = errors.Op("process_wait")
-	var err error
-	err = w.cmd.Wait()
+	err := w.cmd.Wait()
 	w.doneCh <- struct{}{}
 
 	// If worker was destroyed, just exit
@@ -251,9 +248,7 @@ func (w *Process) StreamIterWithContext(ctx context.Context) (*payload.Payload, 
 			}
 
 			w.log.Debug("stream iter error", "pid", w.Pid(), "error", err)
-			// trash response
-			rsp = nil
-			runtime.Goexit()
+			return
 		}
 
 		c <- &wexec{
@@ -264,15 +259,7 @@ func (w *Process) StreamIterWithContext(ctx context.Context) (*payload.Payload, 
 	select {
 	// exec TTL reached
 	case <-ctx.Done():
-		// we should kill the process here to ensure that it exited
-		errK := w.Kill()
-		err := stderr.Join(errK, ctx.Err())
-		// we should wait for the exit from the worker
-		// 'c' channel here should return an error or nil
-		// because the goroutine holds the payload pointer (from the sync.Pool)
-		<-c
-		w.putCh(c)
-		return nil, false, errors.E(errors.ExecTTL, err)
+		return nil, false, errors.E(errors.ExecTTL, w.abortExec(ctx, c))
 	case res := <-c:
 		w.putCh(c)
 
@@ -327,20 +314,15 @@ func (w *Process) StreamCancel(ctx context.Context) error {
 				c <- &wexec{
 					err: errrf,
 				}
-
 				w.log.Debug("stream cancel error", "pid", w.Pid(), "error", errrf)
-				// trash response
-				rsp = nil
-				runtime.Goexit()
+				return
 			}
 
 			// stream has ended
 			if rsp.Flags&frame.STREAM == 0 {
 				w.log.Debug("stream has ended", "pid", w.Pid())
 				c <- &wexec{}
-				// trash response
-				rsp = nil
-				runtime.Goexit()
+				return
 			}
 		}
 	}()
@@ -348,14 +330,7 @@ func (w *Process) StreamCancel(ctx context.Context) error {
 	select {
 	// exec TTL reached
 	case <-ctx.Done():
-		errK := w.Kill()
-		err := stderr.Join(errK, ctx.Err())
-		// we should wait for the exit from the worker
-		// 'c' channel here should return an error or nil
-		// because the goroutine holds the payload pointer (from the sync.Pool)
-		<-c
-		w.putCh(c)
-		return errors.E(op, errors.ExecTTL, err)
+		return errors.E(op, errors.ExecTTL, w.abortExec(ctx, c))
 	case res := <-c:
 		w.putCh(c)
 		if res.err != nil {
@@ -363,6 +338,15 @@ func (w *Process) StreamCancel(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+func (w *Process) abortExec(ctx context.Context, c chan *wexec) error {
+	errK := w.Kill()
+	err := stderr.Join(errK, ctx.Err())
+	// the channel returns an error or nil
+	<-c
+	w.putCh(c)
+	return err
 }
 
 // Exec executes payload with TTL timeout in the context.
@@ -374,47 +358,41 @@ func (w *Process) Exec(ctx context.Context, p *payload.Payload) (*payload.Payloa
 		return nil, errors.E(op, errors.Retry, errors.Errorf("Process is not ready (%s)", w.State().String()))
 	}
 
-	c := w.getCh()
 	// set last used time
 	w.State().SetLastUsed(uint64(time.Now().UnixNano()))
 	w.State().Transition(fsm.StateWorking)
 
-	go func() {
+	do := func() *wexec {
 		err := w.sendFrame(p)
 		if err != nil {
-			c <- &wexec{
-				err: err,
-			}
-			runtime.Goexit()
+			return &wexec{err: err}
 		}
 
 		w.State().RegisterExec()
 		rsp, err := w.receiveFrame()
-		if err != nil {
-			c <- &wexec{
-				payload: rsp,
-				err:     err,
-			}
 
-			runtime.Goexit()
+		return &wexec{payload: rsp, err: err}
+	}
+
+	// fast path: a context that can never fire needs no goroutine and no channel round-trip
+	if ctx.Done() == nil {
+		res := do()
+		if res.err != nil {
+			return nil, res.err
 		}
 
-		c <- &wexec{
-			payload: rsp,
-		}
+		return res.payload, nil
+	}
+
+	c := w.getCh()
+	go func() {
+		c <- do()
 	}()
 
 	select {
 	// exec TTL reached
 	case <-ctx.Done():
-		errK := w.Kill()
-		err := stderr.Join(errK, ctx.Err())
-		// we should wait for the exit from the worker
-		// 'c' channel here should return an error or nil
-		// because the goroutine holds the payload pointer (from the sync.Pool)
-		<-c
-		w.putCh(c)
-		return nil, errors.E(op, errors.ExecTTL, err)
+		return nil, errors.E(op, errors.ExecTTL, w.abortExec(ctx, c))
 	case res := <-c:
 		w.putCh(c)
 		if res.err != nil {
@@ -480,34 +458,10 @@ func (w *Process) MaxExecs() uint64 {
 	return w.maxExecs
 }
 
-// copyBuffer is the actual implementation of Copy and CopyBuffer.
+// copyBuffer copies src to dst through buf until EOF.
 func copyBuffer(dst io.Writer, src io.Reader, buf []byte) error {
-	for {
-		nr, er := src.Read(buf)
-		if nr > 0 {
-			nw, ew := dst.Write(buf[0:nr])
-			if nw < 0 || nr < nw {
-				nw = 0
-				if ew == nil {
-					ew = errors.Str("invalid write result")
-				}
-			}
-			if ew != nil {
-				return ew
-			}
-			if nr != nw {
-				return io.ErrShortWrite
-			}
-		}
-		if er != nil {
-			if er != io.EOF {
-				return er
-			}
-			break
-		}
-	}
-
-	return nil
+	_, err := io.CopyBuffer(dst, src, buf)
+	return err
 }
 
 // sendFrame sends frame to the worker
@@ -555,17 +509,11 @@ func (w *Process) receiveFrame() (*payload.Payload, error) {
 		return nil, errors.E(op, errors.Network, err)
 	}
 
-	if frameR == nil {
-		w.putFrame(frameR)
-		return nil, errors.E(op, errors.Network, errors.Str("nil frame received"))
-	}
-
 	codec := frameR.ReadFlags()
 
 	if codec&frame.ERROR != byte(0) {
 		// we need to copy the payload because we will put the frame back to the pool
-		cp := make([]byte, len(frameR.Payload()))
-		copy(cp, frameR.Payload())
+		cp := bytes.Clone(frameR.Payload())
 
 		w.putFrame(frameR)
 		return nil, errors.E(op, errors.SoftJob, errors.Str(string(cp)))
@@ -580,8 +528,7 @@ func (w *Process) receiveFrame() (*payload.Payload, error) {
 	// bound check
 	if len(frameR.Payload()) < int(options[0]) {
 		// we need to copy the payload because we will put the frame back to the pool
-		cp := make([]byte, len(frameR.Payload()))
-		copy(cp, frameR.Payload())
+		cp := bytes.Clone(frameR.Payload())
 
 		w.putFrame(frameR)
 		return nil, errors.E(errors.Network, errors.Errorf("bad payload %s", cp))
@@ -590,18 +537,16 @@ func (w *Process) receiveFrame() (*payload.Payload, error) {
 	// stream + stop -> waste
 	// stream + ping -> response
 	flags := frameR.Header()[10]
+
+	// by cloning we free frame's payload slice: no pointer from the smaller slices to the
+	// initial one, which goes back to the sync.Pool
+	// https://blog.golang.org/slices-intro#TOC_6.
 	pld := &payload.Payload{
 		Flags:   flags,
 		Codec:   codec,
-		Body:    make([]byte, len(frameR.Payload()[options[0]:])),
-		Context: make([]byte, len(frameR.Payload()[:options[0]])),
+		Body:    bytes.Clone(frameR.Payload()[options[0]:]),
+		Context: bytes.Clone(frameR.Payload()[:options[0]]),
 	}
-
-	// by copying we free frame's payload slice
-	// we do not hold the pointer from the smaller slice to the initial (which should be in the sync.Pool)
-	// https://blog.golang.org/slices-intro#TOC_6.
-	copy(pld.Body, frameR.Payload()[options[0]:])
-	copy(pld.Context, frameR.Payload()[:options[0]])
 
 	w.putFrame(frameR)
 	return pld, nil

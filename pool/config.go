@@ -3,11 +3,11 @@ package pool
 import (
 	"runtime"
 	"time"
+
+	"github.com/roadrunner-server/pool/v2/worker_watcher/container/channel"
 )
 
-const maxWorkers = 2048
-
-// Config .. Pool config Configures the pool behavior.
+// Config configures the pool behavior.
 type Config struct {
 	// Debug flag creates new fresh worker before every request.
 	Debug bool
@@ -38,7 +38,8 @@ type Config struct {
 	DynamicAllocatorOpts *DynamicAllocationOpts `mapstructure:"dynamic_allocator"`
 }
 
-// InitDefaults enables default config values.
+// InitDefaults enables default config values. Writes happen only for unset fields: configs
+// may be shared, and a redundant write races concurrent readers.
 func (cfg *Config) InitDefaults() {
 	if cfg.NumWorkers == 0 {
 		cfg.NumWorkers = uint64(runtime.NumCPU()) //nolint:gosec
@@ -101,9 +102,12 @@ func (d *DynamicAllocationOpts) InitDefaults(numWorkers uint64) {
 		d.MaxWorkers = 10
 	}
 
-	// limit max workers to 1000 dynamically allocated workers
-	if d.MaxWorkers+numWorkers > maxWorkers {
-		d.MaxWorkers = maxWorkers - numWorkers
+	// base plus dynamic workers may not exceed the container capacity
+	switch {
+	case numWorkers >= channel.MaxWorkers:
+		d.MaxWorkers = 0
+	case d.MaxWorkers > channel.MaxWorkers-numWorkers:
+		d.MaxWorkers = channel.MaxWorkers - numWorkers
 	}
 
 	if d.SpawnRate == 0 {
@@ -114,7 +118,7 @@ func (d *DynamicAllocationOpts) InitDefaults(numWorkers uint64) {
 		d.SpawnRate = 100
 	}
 
-	if d.IdleTimeout == 0 || d.IdleTimeout < time.Second {
+	if d.IdleTimeout < time.Second {
 		d.IdleTimeout = time.Minute
 	}
 }

@@ -116,9 +116,7 @@ func TestRateLimiter_RaceCondition(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// After all goroutines finish and cooldowns complete, token should be available
-	rl.mu.Lock()
-	if !rl.available {
+	if !rl.available.Load() {
 		t.Error("rate limiter should be in available state after all operations complete")
 	}
-	rl.mu.Unlock()
 }

@@ -17,8 +17,6 @@ import (
 	"github.com/roadrunner-server/pool/v2/internal"
 	"github.com/roadrunner-server/pool/v2/worker"
 	"github.com/shirou/gopsutil/process"
-
-	"golang.org/x/sync/errgroup"
 )
 
 // Factory connects to external stack using socket server.
@@ -37,21 +35,14 @@ func NewSocketServer(ls net.Listener, log *slog.Logger) *Factory {
 		log: log,
 	}
 
-	// Be careful
-	// https://github.com/go101/go101/wiki/About-memory-ordering-guarantees-made-by-atomic-operations-in-Go
-	// https://github.com/golang/go/issues/5045
 	go func() {
 		err := f.listen()
-		// there is no logger here, use fmt
-		if err != nil {
-			if opErr, ok := stderr.AsType[*net.OpError](err); ok {
-				if opErr.Err.Error() == "use of closed network connection" {
-					return
-				}
-			}
-
-			log.Warn("socket server listen", "error", err)
+		// the listener is closed as part of shutdown
+		if stderr.Is(err, net.ErrClosed) {
+			return
 		}
+
+		log.Warn("socket server listen", "error", err)
 	}()
 
 	return f
@@ -59,25 +50,23 @@ func NewSocketServer(ls net.Listener, log *slog.Logger) *Factory {
 
 // blocking operation, returns an error
 func (f *Factory) listen() error {
-	errGr := &errgroup.Group{}
-	errGr.Go(func() error {
-		for {
-			conn, err := f.ls.Accept()
-			if err != nil {
-				return err
-			}
-
-			rl := socket.NewSocketRelay(conn)
-			pid, err := internal.Pid(rl)
-			if err != nil {
-				return err
-			}
-
-			f.attachRelayToPid(pid, rl)
+	for {
+		conn, err := f.ls.Accept()
+		if err != nil {
+			return err
 		}
-	})
-
-	return errGr.Wait()
+		_ = conn.SetReadDeadline(time.Now().Add(time.Minute))
+		rl := socket.NewSocketRelay(conn)
+		pid, err := internal.Pid(rl)
+		if err != nil {
+			f.log.Warn("failed to read the pid from the socket connection", "error", err)
+			_ = conn.Close()
+			continue
+		}
+		// the relay is reused for all later worker traffic, which sets its own bounds
+		_ = conn.SetReadDeadline(time.Time{})
+		f.attachRelayToPid(pid, rl)
+	}
 }
 
 type socketSpawn struct {
@@ -89,60 +78,46 @@ type socketSpawn struct {
 func (f *Factory) SpawnWorkerWithContext(ctx context.Context, cmd *exec.Cmd, options ...worker.Options) (*worker.Process, error) {
 	c := make(chan socketSpawn)
 	go func() {
+		send := func(res socketSpawn) bool {
+			select {
+			case c <- res:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+
 		w, err := worker.InitBaseWorker(cmd, options...)
 		if err != nil {
-			select {
-			case c <- socketSpawn{
-				w:   nil,
-				err: err,
-			}:
-				return
-			default:
-				return
-			}
+			send(socketSpawn{err: err})
+			return
 		}
 
 		err = w.Start()
 		if err != nil {
-			select {
-			case c <- socketSpawn{
-				w:   nil,
-				err: err,
-			}:
-				return
-			default:
-				return
-			}
+			send(socketSpawn{err: err})
+			return
 		}
 
 		rl, err := f.findRelayWithContext(ctx, w)
 		if err != nil {
+			go func() {
+				_ = w.Wait()
+			}()
 			_ = w.Kill()
-			select {
-			// try to write a result
-			case c <- socketSpawn{
-				w:   nil,
-				err: err,
-			}:
-				return
-				// if no receivers - return
-			default:
-				return
-			}
+			send(socketSpawn{err: err})
+			return
 		}
 
 		w.AttachRelay(rl)
 		w.State().Transition(fsm.StateReady)
 
-		select {
-		case c <- socketSpawn{
-			w:   w,
-			err: nil,
-		}:
-			return
-		default:
+		if !send(socketSpawn{w: w}) {
+			// the receiver timed out; reap the fully spawned worker
+			go func() {
+				_ = w.Wait()
+			}()
 			_ = w.Kill()
-			return
 		}
 	}()
 
@@ -165,8 +140,7 @@ func (f *Factory) Close() error {
 
 // waits for Process to connect over socket and returns associated relay or timeout
 func (f *Factory) findRelayWithContext(ctx context.Context, w *worker.Process) (*socket.Relay, error) {
-	ticker := time.NewTicker(time.Millisecond * 10)
-	defer ticker.Stop()
+	ticker := time.Tick(time.Millisecond * 10)
 	for {
 		// fast path: check relay map immediately
 		rl, ok := f.relays.LoadAndDelete(w.Pid())
@@ -177,7 +151,7 @@ func (f *Factory) findRelayWithContext(ctx context.Context, w *worker.Process) (
 		select {
 		case <-ctx.Done():
 			return nil, errors.E(errors.Op("findRelayWithContext"), errors.TimeOut)
-		case <-ticker.C:
+		case <-ticker:
 			// check if process still exists
 			_, err := process.NewProcess(int32(w.Pid())) //nolint:gosec
 			if err != nil {
@@ -187,7 +161,7 @@ func (f *Factory) findRelayWithContext(ctx context.Context, w *worker.Process) (
 	}
 }
 
-// chan to store relay associated with specific pid
+// attachRelayToPid stores the relay associated with the specific pid
 func (f *Factory) attachRelayToPid(pid int64, relay relay.Relay) {
 	f.relays.Store(pid, relay)
 }

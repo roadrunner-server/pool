@@ -19,8 +19,7 @@ type Factory struct {
 	log *slog.Logger
 }
 
-// NewPipeFactory returns new factory instance and starts
-// listening
+// NewPipeFactory returns a new factory instance.
 func NewPipeFactory(log *slog.Logger) *Factory {
 	return &Factory{
 		log: log,
@@ -35,45 +34,33 @@ type sr struct {
 // SpawnWorkerWithContext Creates a new Process and connects it to goridge relay,
 // method Wait() must be handled on the level above.
 func (f *Factory) SpawnWorkerWithContext(ctx context.Context, cmd *exec.Cmd, options ...worker.Options) (*worker.Process, error) {
-	spCh := make(chan sr, 1)
+	spCh := make(chan sr)
 	go func() {
+		send := func(res sr) bool {
+			select {
+			case spCh <- res:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+
 		w, err := worker.InitBaseWorker(cmd, options...)
 		if err != nil {
-			select {
-			case spCh <- sr{
-				w:   nil,
-				err: err,
-			}:
-				return
-			default:
-				return
-			}
+			send(sr{err: err})
+			return
 		}
 
 		in, err := cmd.StdoutPipe()
 		if err != nil {
-			select {
-			case spCh <- sr{
-				w:   nil,
-				err: err,
-			}:
-				return
-			default:
-				return
-			}
+			send(sr{err: err})
+			return
 		}
 
 		out, err := cmd.StdinPipe()
 		if err != nil {
-			select {
-			case spCh <- sr{
-				w:   nil,
-				err: err,
-			}:
-				return
-			default:
-				return
-			}
+			send(sr{err: err})
+			return
 		}
 
 		// Init new PIPE relay
@@ -83,50 +70,42 @@ func (f *Factory) SpawnWorkerWithContext(ctx context.Context, cmd *exec.Cmd, opt
 		// Start the worker
 		err = w.Start()
 		if err != nil {
-			select {
-			case spCh <- sr{
-				w:   nil,
-				err: err,
-			}:
-				return
-			default:
-				return
-			}
+			send(sr{err: err})
+			return
 		}
 
 		// used as a ping
+		stopKill := context.AfterFunc(ctx, func() {
+			_ = w.Kill()
+		})
 		_, err = internal.Pid(relay)
+		if !stopKill() && err == nil {
+			// the kill callback already ran; the worker is unusable despite the completed
+			// handshake
+			go func() {
+				_ = w.Wait()
+			}()
+			send(sr{err: errors.E(errors.TimeOut)})
+			return
+		}
 		if err != nil {
 			go func() {
 				_ = w.Wait()
 			}()
 			_ = w.Kill()
-			select {
-			case spCh <- sr{
-				w:   nil,
-				err: err,
-			}:
-				return
-			default:
-				_ = w.Kill()
-				return
-			}
+			send(sr{err: err})
+			return
 		}
 
 		// everything ok, set ready state
 		w.State().Transition(fsm.StateReady)
 
-		select {
-		case
-		// return worker
-		spCh <- sr{
-			w:   w,
-			err: nil,
-		}:
-			return
-		default:
+		if !send(sr{w: w}) {
+			// the receiver timed out; reap the fully spawned worker
+			go func() {
+				_ = w.Wait()
+			}()
 			_ = w.Kill()
-			return
 		}
 	}()
 

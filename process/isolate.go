@@ -26,12 +26,12 @@ func ExecuteFromUser(cmd *exec.Cmd, u string) error {
 		return errors.E(op, err)
 	}
 
-	usrI32, err := strconv.ParseInt(usr.Uid, 10, 32)
+	usrU32, err := strconv.ParseUint(usr.Uid, 10, 32)
 	if err != nil {
 		return errors.E(op, err)
 	}
 
-	grI32, err := strconv.ParseInt(usr.Gid, 10, 32)
+	grU32, err := strconv.ParseUint(usr.Gid, 10, 32)
 	if err != nil {
 		return errors.E(op, err)
 	}
@@ -50,9 +50,13 @@ func ExecuteFromUser(cmd *exec.Cmd, u string) error {
 		return errors.E(op, errors.Errorf("failed to stat /proc/self/ns/user: %v", err))
 	}
 
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+
 	cmd.SysProcAttr.Credential = &syscall.Credential{
-		Uid: uint32(usrI32), //nolint:gosec
-		Gid: uint32(grI32),  //nolint:gosec
+		Uid: uint32(usrU32),
+		Gid: uint32(grU32),
 	}
 
 	return nil

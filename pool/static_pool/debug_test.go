@@ -1,7 +1,11 @@
 package static_pool
 
 import (
+	"os"
 	"os/exec"
+	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,4 +76,55 @@ func TestExecDebug_FreshWorkerPerRequest(t *testing.T) {
 
 	// All PIDs should be different — each request creates a new worker
 	assert.Len(t, pids, 3, "debug mode should spawn a fresh worker for each request")
+}
+
+func childPids(t *testing.T) map[string]struct{} {
+	t.Helper()
+	out, _ := exec.Command("pgrep", "-P", strconv.Itoa(os.Getpid())).Output() //nolint:gosec
+	pids := map[string]struct{}{}
+	for p := range strings.FieldsSeq(string(out)) {
+		pids[p] = struct{}{}
+	}
+	return pids
+}
+
+// newChildren returns child pids that appeared since the before snapshot.
+func newChildren(t *testing.T, before map[string]struct{}) []string {
+	t.Helper()
+	var extra []string
+	for p := range childPids(t) {
+		if _, ok := before[p]; !ok {
+			extra = append(extra, p)
+		}
+	}
+	return extra
+}
+
+func TestExecDebug_ErrorDoesNotLeakWorker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pgrep is not available on windows")
+	}
+	before := childPids(t)
+	p, err := NewPool(
+		t.Context(),
+		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "error", "pipes") },
+		pipe.NewPipeFactory(slog.Default()),
+		&pool.Config{
+			Debug:           true,
+			AllocateTimeout: time.Second * 5,
+			DestroyTimeout:  time.Second * 5,
+		},
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { p.Destroy(t.Context()) })
+
+	for range 3 {
+		_, errE := p.Exec(t.Context(), &payload.Payload{Body: []byte("boom")}, make(chan struct{}))
+		require.Error(t, errE)
+	}
+
+	assert.Eventually(t, func() bool {
+		return len(newChildren(t, before)) == 0
+	}, time.Second*5, time.Millisecond*250, "debug workers must not survive failed execs")
 }

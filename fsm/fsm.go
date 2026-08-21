@@ -36,18 +36,37 @@ func (s *Fsm) Compare(state int64) bool {
 Transition moves worker from one state to another
 */
 func (s *Fsm) Transition(to int64) {
-	err := s.recognizer(to)
-	if err != nil {
+	// validate and store atomically
+	for {
+		from := s.currentState.Load()
+		err := s.recognizer(from, to)
+		if err != nil {
+			s.log.Debug("transition info, this is not an error", "reason", err.Error())
+			return
+		}
+
+		if s.currentState.CompareAndSwap(from, to) {
+			return
+		}
+	}
+}
+
+func (s *Fsm) TransitionFrom(from, to int64) bool {
+	if err := s.recognizer(from, to); err != nil {
 		s.log.Debug("transition info, this is not an error", "reason", err.Error())
-		return
+		return false
 	}
 
-	s.currentState.Store(to)
+	return s.currentState.CompareAndSwap(from, to)
 }
 
 // String returns current StateImpl as string.
 func (s *Fsm) String() string {
-	switch s.currentState.Load() {
+	return stateName(s.currentState.Load())
+}
+
+func stateName(state int64) string {
+	switch state {
 	case StateInactive:
 		return "inactive"
 	case StateReady:
@@ -72,6 +91,8 @@ func (s *Fsm) String() string {
 		return "ttlReached"
 	case StateMaxMemoryReached:
 		return "maxMemoryReached"
+	case StateExecTTLReached:
+		return "execTTLReached"
 	default:
 		return "undefined"
 	}
@@ -82,10 +103,10 @@ func (s *Fsm) NumExecs() uint64 {
 	return s.numExecs.Load()
 }
 
-// IsActive returns true if WorkerProcess not Inactive or Stopped
+// IsActive returns true if the worker is in the Ready or Working state.
 func (s *Fsm) IsActive() bool {
-	return s.currentState.Load() == StateWorking ||
-		s.currentState.Load() == StateReady
+	st := s.currentState.Load()
+	return st == StateWorking || st == StateReady
 }
 
 // RegisterExec register new execution atomically
@@ -105,35 +126,33 @@ func (s *Fsm) LastUsed() uint64 {
 // Acceptors (also called detectors or recognizers) produce binary output,
 // indicating whether or not the received input is accepted.
 // Each event of an acceptor is either accepting or non accepting.
-func (s *Fsm) recognizer(to int64) error {
+func (s *Fsm) recognizer(from, to int64) error {
 	const op = errors.Op("fsm_recognizer")
 	switch to {
 	// to
 	case StateInactive:
-		// from
-		// No-one can transition to Inactive
-		if s.currentState.Load() == StateDestroyed {
-			return errors.E(op, errors.Errorf("can't transition from state: %s", s.String()))
+		// from: any state except Destroyed
+		if from == StateDestroyed {
+			return errors.E(op, errors.Errorf("can't transition from state: %s", stateName(from)))
 		}
-	// to from StateWorking/StateInactive only
+	// to
 	case StateReady:
-		// from
-		switch s.currentState.Load() {
+		// from: Working or Inactive only
+		switch from {
 		case StateWorking, StateInactive:
 			return nil
 		default:
-			return errors.E(op, errors.Errorf("can't transition from state: %s", s.String()))
+			return errors.E(op, errors.Errorf("can't transition from state: %s", stateName(from)))
 		}
 
 	// to
 	case StateWorking:
-		// from
-		// StateWorking can be transitioned only from StateReady
-		if s.currentState.Load() == StateReady {
+		// from: Ready only
+		if from == StateReady {
 			return nil
 		}
 
-		return errors.E(op, errors.Errorf("can't transition from state: %s", s.String()))
+		return errors.E(op, errors.Errorf("can't transition from state: %s", stateName(from)))
 	// to
 	case
 		StateInvalid,
@@ -145,9 +164,9 @@ func (s *Fsm) recognizer(to int64) error {
 		StateTTLReached,
 		StateMaxMemoryReached,
 		StateExecTTLReached:
-		// from
-		if s.currentState.Load() == StateDestroyed {
-			return errors.E(op, errors.Errorf("can't transition from state: %s", s.String()))
+		// from: any state except Destroyed
+		if from == StateDestroyed {
+			return errors.E(op, errors.Errorf("can't transition from state: %s", stateName(from)))
 		}
 	// to
 	case StateDestroyed:

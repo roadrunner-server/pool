@@ -80,10 +80,9 @@ func createStartedWorker(t *testing.T, state int64) *worker.Process {
 // shutdownWatcher signals the watcher to stop (without calling Destroy which needs relay).
 func shutdownWatcher(ww *WorkerWatcher) {
 	ww.container.Destroy()
-	select {
-	case ww.stopCh <- struct{}{}:
-	default:
-	}
+	ww.stopOnce.Do(func() {
+		close(ww.stopCh)
+	})
 }
 
 // TestWorkerWatcher_AllocateRetryTimeout verifies that Allocate returns a WorkerAllocate error
@@ -279,4 +278,26 @@ func TestWorkerWatcher_Allocate_StopChExitsRetryLoop(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(errors.WatcherStopped, err))
 	assert.Less(t, elapsed, 3*time.Second, "should exit promptly via stopCh")
+}
+
+func TestWorkerWatcher_Destroy_UnblocksAllocateRetry(t *testing.T) {
+	ww := NewSyncWorkerWatcher(alwaysFailAllocator(), slog.Default(), 0, time.Second*10)
+
+	addDone := make(chan error, 1)
+	go func() {
+		addDone <- ww.AddWorker()
+	}()
+
+	// let AddWorker enter the allocate retry loop
+	time.Sleep(time.Millisecond * 200)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+	start := time.Now()
+	ww.Destroy(ctx)
+	elapsed := time.Since(start)
+
+	assert.Less(t, elapsed, time.Second*6, "Destroy must not wait out the whole allocate retry timeout")
+
+	require.Error(t, <-addDone)
 }
