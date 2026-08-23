@@ -245,16 +245,25 @@ func (ww *WorkerWatcher) Release(w *worker.Process) {
 	}
 }
 
-// stopWatchedWorkers stops every tracked worker concurrently and clears the workers map.
-// The caller must hold ww.mu.
+// stopWatchedWorkers asks every tracked worker to shut down; Process.Stop waits out its own
+// grace period before killing one that does not answer. The caller must hold ww.mu.
 func (ww *WorkerWatcher) stopWatchedWorkers() {
+	ww.disposeWatchedWorkers((*worker.Process).Stop)
+}
+
+// killWatchedWorkers terminates every tracked worker at once, for when there is no time left
+// to negotiate. The caller must hold ww.mu.
+func (ww *WorkerWatcher) killWatchedWorkers() {
+	ww.disposeWatchedWorkers((*worker.Process).Kill)
+}
+
+func (ww *WorkerWatcher) disposeWatchedWorkers(dispose func(*worker.Process) error) {
 	wg := &sync.WaitGroup{}
 	ww.workers.Range(func(key, value any) bool {
 		w := value.(*worker.Process)
 		wg.Go(func() {
 			w.State().Transition(fsm.StateDestroyed)
-			// kill the worker
-			_ = w.Stop()
+			_ = dispose(w)
 			// remove worker from the channel
 			w.Callback()
 		})
@@ -292,9 +301,8 @@ func (ww *WorkerWatcher) Reset(ctx context.Context) uint64 {
 
 			return ww.numWorkers.Load()
 		case <-ctx.Done():
-			// kill workers
 			ww.mu.Lock()
-			ww.stopWatchedWorkers()
+			ww.killWatchedWorkers()
 			ww.container.ResetDone()
 			ww.mu.Unlock()
 
@@ -338,10 +346,9 @@ func (ww *WorkerWatcher) Destroy(ctx context.Context) {
 			ww.mu.Unlock()
 			return
 		case <-ctx.Done():
-			// kill workers
 			ww.log.Debug("destroy: context canceled", "error", ctx.Err())
 			ww.mu.Lock()
-			ww.stopWatchedWorkers()
+			ww.killWatchedWorkers()
 			ww.numWorkers.Store(0)
 			ww.destroyed.Store(true)
 			ww.mu.Unlock()

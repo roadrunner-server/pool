@@ -162,13 +162,13 @@ func (sp *Pool) RemoveWorker(ctx context.Context) error {
 	return sp.ww.RemoveWorker(ctx)
 }
 
-// ensureDeadline bounds the context with the fallback timeout when the caller set no deadline.
-func ensureDeadline(ctx context.Context, fallback time.Duration) (context.Context, context.CancelFunc) {
-	if _, ok := ctx.Deadline(); ok {
+// ensureDeadline bounds the context by the tighter of its own deadline and the given timeout.
+func ensureDeadline(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= timeout {
 		return ctx, func() {}
 	}
 
-	return context.WithTimeout(ctx, fallback)
+	return context.WithTimeout(ctx, timeout)
 }
 
 // AddWorker adds one worker to the pool. With a dynamic allocator configured, workers above
