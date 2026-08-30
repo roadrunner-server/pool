@@ -2,6 +2,8 @@ module github.com/roadrunner-server/pool/v2
 
 go 1.27
 
+toolchain go1.27.0
+
 require (
 	github.com/roadrunner-server/errors v1.5.0
 	github.com/roadrunner-server/events v1.0.1
