@@ -3,6 +3,7 @@ package pipe
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"runtime"
@@ -468,7 +469,7 @@ func Test_Pipe_SpawnTimeout_ReapsWorker(t *testing.T) {
 		t.Skip("pgrep is not available on windows")
 	}
 	before := childPids(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond*10)
 	defer cancel()
 
 	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, exec.Command("php", "../../tests/slow-client.php", "echo", "pipes", "200", "0"))
@@ -476,7 +477,7 @@ func Test_Pipe_SpawnTimeout_ReapsWorker(t *testing.T) {
 	require.Nil(t, w)
 
 	assert.Eventually(t, func() bool {
-		for p := range childPids(t) {
+		for p := range maps.Keys(childPids(t)) {
 			if _, ok := before[p]; !ok {
 				return false
 			}
