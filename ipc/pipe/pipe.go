@@ -15,15 +15,11 @@ import (
 
 // Factory connects to stack using standard
 // streams (STDIN, STDOUT pipes).
-type Factory struct {
-	log *slog.Logger
-}
+type Factory struct{}
 
 // NewPipeFactory returns a new factory instance.
-func NewPipeFactory(log *slog.Logger) *Factory {
-	return &Factory{
-		log: log,
-	}
+func NewPipeFactory(_ *slog.Logger) *Factory {
+	return &Factory{}
 }
 
 type sr struct {

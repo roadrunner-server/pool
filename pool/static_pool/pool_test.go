@@ -59,7 +59,7 @@ func Test_MaxWorkers(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd {
-			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+			return exec.Command("php", "../../tests/sleep-ttl.php")
 		},
 		pipe.NewPipeFactory(slog.Default()),
 		dynAllCfg,
@@ -389,34 +389,6 @@ func Test_StaticPool_Echo(t *testing.T) {
 
 	re, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
 	assert.NoError(t, err)
-	res := <-re
-
-	assert.NotNil(t, res)
-	assert.NotNil(t, res.Body())
-	assert.Empty(t, res.Context())
-
-	assert.Equal(t, "hello", res.Payload().String())
-	t.Cleanup(func() {
-		p.Destroy(t.Context())
-		p = nil
-	})
-}
-
-func Test_StaticPool_Echo_NilContext(t *testing.T) {
-	p, err := NewPool(
-		t.Context(),
-		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/client.php", "echo", "pipes") },
-		pipe.NewPipeFactory(slog.Default()),
-		testCfg,
-		slog.Default(),
-	)
-	assert.NoError(t, err)
-
-	assert.NotNil(t, p)
-
-	re, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello"), Context: nil}, make(chan struct{}))
-	assert.NoError(t, err)
-
 	res := <-re
 
 	assert.NotNil(t, res)

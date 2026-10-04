@@ -57,7 +57,7 @@ func NewSyncWorkerWatcher(allocator Allocator, log *slog.Logger, numWorkers uint
 	return ww
 }
 
-func (ww *WorkerWatcher) Watch(workers []*worker.Process) error {
+func (ww *WorkerWatcher) Watch(workers []*worker.Process) {
 	ww.mu.Lock()
 	defer ww.mu.Unlock()
 
@@ -68,8 +68,6 @@ func (ww *WorkerWatcher) Watch(workers []*worker.Process) error {
 		ww.workers.Store(workers[i].Pid(), workers[i])
 		ww.addToWatch(workers[i])
 	}
-
-	return nil
 }
 
 // NumWorkers returns the live number of workers tracked by the watcher.
@@ -274,33 +272,22 @@ func (ww *WorkerWatcher) Reset(ctx context.Context) uint64 {
 		select {
 		case <-tt:
 			ww.mu.RLock()
-
-			// that might be one of the workers is working. To proceed, all workers should be inside a channel
-			if ww.numWorkers.Load() != uint64(ww.container.Len()) { //nolint:gosec
-				ww.mu.RUnlock()
+			idle := ww.numWorkers.Load() == uint64(ww.container.Len()) //nolint:gosec
+			ww.mu.RUnlock()
+			if !idle {
 				continue
 			}
-			ww.mu.RUnlock()
-			// All workers at this moment are in the container
-			// Pop operation is blocked; push can't be done, since it's not possible to pop
-			ww.mu.Lock()
-			ww.stopWatchedWorkers()
-			ww.container.ResetDone()
-
-			// todo: rustatian, do we need this mutex?
-			ww.mu.Unlock()
-
-			return ww.numWorkers.Load()
 		case <-ctx.Done():
-			// kill workers
-			ww.mu.Lock()
-			ww.stopWatchedWorkers()
-			ww.container.ResetDone()
-			ww.mu.Unlock()
-
-			return ww.numWorkers.Load()
 		}
+		break
 	}
+
+	ww.mu.Lock()
+	ww.stopWatchedWorkers()
+	ww.container.ResetDone()
+	ww.mu.Unlock()
+
+	return ww.numWorkers.Load()
 }
 
 // Destroy all underlying containers (but let them complete the task)
@@ -321,33 +308,22 @@ func (ww *WorkerWatcher) Destroy(ctx context.Context) {
 		select {
 		case <-tt:
 			ww.mu.RLock()
-			// that might be one of the workers is working
-			if ww.numWorkers.Load() != uint64(ww.container.Len()) { //nolint:gosec
-				ww.mu.RUnlock()
+			idle := ww.numWorkers.Load() == uint64(ww.container.Len()) //nolint:gosec
+			ww.mu.RUnlock()
+			if !idle {
 				continue
 			}
-
-			ww.mu.RUnlock()
-			// All workers at this moment are in the container
-			// Pop operation is blocked, push can't be done, since it's not possible to pop
-
-			ww.mu.Lock()
-			ww.stopWatchedWorkers()
-			ww.numWorkers.Store(0)
-			ww.destroyed.Store(true)
-			ww.mu.Unlock()
-			return
 		case <-ctx.Done():
-			// kill workers
 			ww.log.Debug("destroy: context canceled", "error", ctx.Err())
-			ww.mu.Lock()
-			ww.stopWatchedWorkers()
-			ww.numWorkers.Store(0)
-			ww.destroyed.Store(true)
-			ww.mu.Unlock()
-			return
 		}
+		break
 	}
+
+	ww.mu.Lock()
+	ww.stopWatchedWorkers()
+	ww.numWorkers.Store(0)
+	ww.destroyed.Store(true)
+	ww.mu.Unlock()
 }
 
 // List - this is O(n) operation, and it will return copy of the actual workers
@@ -386,26 +362,17 @@ func (ww *WorkerWatcher) wait(w *worker.Process) {
 
 	err = ww.Allocate()
 	if err != nil {
-		// the watcher is shutting down and the dead worker gets no replacement; drop it
-		// from the count so Destroy's drain can converge
-		if errors.Is(errors.WatcherStopped, err) {
-			for {
-				n := ww.numWorkers.Load()
-				if n == 0 || ww.numWorkers.CompareAndSwap(n, n-1) {
-					break
-				}
-			}
-			return
-		}
-
-		// dead worker was not replaced; saturate at zero so a concurrent removal cannot
-		// wrap the counter
+		// The worker has no replacement. Keep the count at or above zero.
 		for {
 			n := ww.numWorkers.Load()
 			if n == 0 || ww.numWorkers.CompareAndSwap(n, n-1) {
 				break
 			}
 		}
+		if errors.Is(errors.WatcherStopped, err) {
+			return
+		}
+
 		ww.log.Error("failed to allocate the worker", "internal_event_name", events.EventWorkerError.String(), "error", err)
 		if ww.numWorkers.Load() == 0 {
 			panic("no workers available, can't run the application")

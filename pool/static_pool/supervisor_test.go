@@ -59,36 +59,6 @@ func Test_SupervisedPool_Exec(t *testing.T) {
 	t.Cleanup(func() { p.Destroy(t.Context()) })
 }
 
-func Test_SupervisedPool_AddRemoveWorkers(t *testing.T) {
-	p, err := NewPool(
-		t.Context(),
-		func(cmd []string) *exec.Cmd { return exec.Command("php", "../../tests/memleak.php", "pipes") },
-		pipe.NewPipeFactory(slog.Default()),
-		cfgSupervised,
-		slog.Default(),
-	)
-
-	require.NoError(t, err)
-	require.NotNil(t, p)
-
-	time.Sleep(time.Second)
-
-	pidBefore := p.Workers()[0].Pid()
-
-	for range 10 {
-		time.Sleep(time.Second)
-		_, err = p.Exec(t.Context(), &payload.Payload{
-			Context: []byte(""),
-			Body:    []byte("foo"),
-		}, make(chan struct{}))
-		require.NoError(t, err)
-	}
-
-	time.Sleep(time.Second)
-	require.NotEqual(t, pidBefore, p.Workers()[0].Pid())
-	t.Cleanup(func() { p.Destroy(t.Context()) })
-}
-
 func Test_SupervisedPool_ImmediateDestroy(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),

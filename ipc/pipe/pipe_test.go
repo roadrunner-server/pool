@@ -2,6 +2,7 @@ package pipe
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -17,6 +18,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var log = slog.New(slog.DiscardHandler)
 
 func Test_GetState(t *testing.T) {
 	t.Parallel()
@@ -96,21 +99,6 @@ func Test_Pipe_StartError(t *testing.T) {
 func Test_Pipe_PipeError(t *testing.T) {
 	t.Parallel()
 	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
-	_, err := cmd.StdinPipe()
-	if err != nil {
-		t.Errorf("error creating the STDIN pipe: error %v", err)
-	}
-
-	ctx := t.Context()
-	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, cmd)
-	assert.Error(t, err)
-	assert.Nil(t, w)
-}
-
-func Test_Pipe_PipeError2(t *testing.T) {
-	t.Parallel()
-	cmd := exec.Command("php", "../../tests/client.php", "echo", "pipes")
-	// error cause
 	_, err := cmd.StdinPipe()
 	if err != nil {
 		t.Errorf("error creating the STDIN pipe: error %v", err)
@@ -483,7 +471,7 @@ func Test_Pipe_SpawnTimeout_ReapsWorker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
 	defer cancel()
 
-	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, exec.Command("php", "../../tests/client.php", "echo", "pipes"))
+	w, err := NewPipeFactory(log).SpawnWorkerWithContext(ctx, exec.Command("php", "../../tests/slow-client.php", "echo", "pipes", "200", "0"))
 	require.Error(t, err)
 	require.Nil(t, w)
 

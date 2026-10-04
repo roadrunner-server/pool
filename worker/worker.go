@@ -111,7 +111,7 @@ func InitBaseWorker(cmd *exec.Cmd, options ...Options) (*Process, error) {
 		// https://linux.die.net/man/7/pipe
 		// see pipe capacity
 		buf := make([]byte, 65536)
-		errCopy := copyBuffer(w, rc, buf)
+		_, errCopy := io.CopyBuffer(w, rc, buf)
 		if errCopy != nil {
 			w.log.Debug("stderr", "error", errCopy)
 		}
@@ -456,12 +456,6 @@ func (w *Process) MaxExecsReached() bool {
 
 func (w *Process) MaxExecs() uint64 {
 	return w.maxExecs
-}
-
-// copyBuffer copies src to dst through buf until EOF.
-func copyBuffer(dst io.Writer, src io.Reader, buf []byte) error {
-	_, err := io.CopyBuffer(dst, src, buf)
-	return err
 }
 
 // sendFrame sends frame to the worker

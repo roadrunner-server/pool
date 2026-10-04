@@ -30,10 +30,6 @@ type Pool struct {
 	cfg *pool.Config
 	// logger
 	log *slog.Logger
-	// worker command creator
-	cmd pool.Command
-	// creates and connects to workers
-	factory pool.Factory
 	// manages worker states and TTLs
 	ww *workerWatcher.WorkerWatcher
 	// dynamic allocator
@@ -63,11 +59,9 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 	cfg.InitDefaults()
 
 	p := &Pool{
-		cfg:     cfg,
-		cmd:     cmd,
-		factory: factory,
-		log:     log,
-		stopCh:  make(chan struct{}),
+		cfg:    cfg,
+		log:    log,
+		stopCh: make(chan struct{}),
 	}
 
 	// options may adjust the config (e.g. WithNumWorkers), so validation and derived
@@ -118,10 +112,7 @@ func NewPool(ctx context.Context, cmd pool.Command, factory pool.Factory, cfg *p
 	}
 
 	// add workers to the watcher
-	err = p.ww.Watch(workers)
-	if err != nil {
-		return nil, err
-	}
+	p.ww.Watch(workers)
 
 	if p.cfg.Supervisor != nil {
 		if p.cfg.Supervisor.ExecTTL != 0 {
@@ -353,10 +344,7 @@ func (sp *Pool) Reset(ctx context.Context) error {
 		return err
 	}
 	// add the NEW workers to the watcher
-	err = sp.ww.Watch(workers)
-	if err != nil {
-		return err
-	}
+	sp.ww.Watch(workers)
 
 	return nil
 }

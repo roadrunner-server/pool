@@ -1,9 +1,8 @@
 package worker
 
 import (
-	"crypto/rand"
 	"log/slog"
-	"math/big"
+	"math/rand/v2"
 )
 
 const (
@@ -20,31 +19,7 @@ func WithLog(z *slog.Logger) Options {
 
 func WithMaxExecs(maxExecs uint64) Options {
 	return func(p *Process) {
-		p.maxExecs = calculateMaxExecsJitter(maxExecs, maxExecsPercentJitter, p.log)
+		percent := rand.Uint64N(maxExecsPercentJitter) //nolint:gosec // This value only sets the worker restart limit.
+		p.maxExecs = maxExecs + uint64(float64(maxExecs)*float64(percent)/100)
 	}
-}
-
-func calculateMaxExecsJitter(maxExecs, jitter uint64, log *slog.Logger) uint64 {
-	if maxExecs == 0 {
-		return 0
-	}
-
-	random, err := rand.Int(rand.Reader, big.NewInt(int64(jitter))) //nolint:gosec
-
-	if err != nil {
-		if log != nil {
-			log.Debug("jitter calculation error", "error", err, "jitter", jitter)
-		}
-		return maxExecs
-	}
-
-	percent := random.Uint64()
-
-	if percent == 0 {
-		return maxExecs
-	}
-
-	result := (float64(maxExecs) * float64(percent)) / 100.0
-
-	return maxExecs + uint64(result)
 }
