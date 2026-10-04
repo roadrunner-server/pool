@@ -11,7 +11,6 @@ import (
 	"log/slog"
 
 	"github.com/roadrunner-server/errors"
-	"github.com/roadrunner-server/goridge/v4/pkg/relay"
 	"github.com/roadrunner-server/goridge/v4/pkg/socket"
 	"github.com/roadrunner-server/pool/v2/fsm"
 	"github.com/roadrunner-server/pool/v2/internal"
@@ -65,7 +64,7 @@ func (f *Factory) listen() error {
 		}
 		// the relay is reused for all later worker traffic, which sets its own bounds
 		_ = conn.SetReadDeadline(time.Time{})
-		f.attachRelayToPid(pid, rl)
+		f.relays.Store(pid, rl)
 	}
 }
 
@@ -159,9 +158,4 @@ func (f *Factory) findRelayWithContext(ctx context.Context, w *worker.Process) (
 			}
 		}
 	}
-}
-
-// attachRelayToPid stores the relay associated with the specific pid
-func (f *Factory) attachRelayToPid(pid int64, relay relay.Relay) {
-	f.relays.Store(pid, relay)
 }

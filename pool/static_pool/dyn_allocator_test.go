@@ -119,7 +119,7 @@ func Test_DynamicPool_OverMax(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd {
-			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+			return exec.Command("php", "../../tests/sleep-ttl.php")
 		},
 		pipe.NewPipeFactory(slog.Default()),
 		dynAllCfg,
@@ -220,7 +220,7 @@ func Test_DynamicPool(t *testing.T) {
 	p, errp := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd {
-			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+			return exec.Command("php", "../../tests/sleep-ttl.php")
 		},
 		pipe.NewPipeFactory(slog.Default()),
 		dynAllCfg,
@@ -285,7 +285,7 @@ func Test_DynamicPool_500W(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd {
-			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+			return exec.Command("php", "../../tests/sleep-ttl.php")
 		},
 		pipe.NewPipeFactory(slog.Default()),
 		dynAllCfg,
@@ -655,7 +655,7 @@ func Test_DynAllocator_SpawnRate_CappedByMaxWorkers(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd {
-			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+			return exec.Command("php", "../../tests/sleep-ttl.php")
 		},
 		pipe.NewPipeFactory(slog.Default()),
 		cfg,
@@ -764,7 +764,7 @@ func Test_DynAllocator_RateLimit_ThunderingHerd(t *testing.T) {
 	p, err := NewPool(
 		t.Context(),
 		func(cmd []string) *exec.Cmd {
-			return exec.Command("php", "../../tests/worker-slow-dyn.php")
+			return exec.Command("php", "../../tests/sleep-ttl.php")
 		},
 		pipe.NewPipeFactory(slog.Default()),
 		cfg,

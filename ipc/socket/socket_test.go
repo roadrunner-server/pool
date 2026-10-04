@@ -2,6 +2,7 @@ package socket
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"os/exec"
 	"sync"
@@ -13,6 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var log = slog.New(slog.DiscardHandler)
 
 func Test_Tcp_Start(t *testing.T) {
 	ctx := t.Context()

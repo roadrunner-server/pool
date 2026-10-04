@@ -17,10 +17,14 @@ jobs:
         go: [stable]
         os: ["ubuntu-latest"]
     steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
       - name: Set up Go ${{ matrix.go }}
         uses: actions/setup-go@v7 # action page: <https://github.com/actions/setup-go>
         with:
           go-version: ${{ matrix.go }}
+          cache-dependency-path: go.sum
 
       - name: Set up PHP ${{ matrix.php }}
         uses: shivammathur/setup-php@v2 # action page: <https://github.com/shivammathur/setup-php>
@@ -28,18 +32,8 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: sockets
 
-      - name: Check out code
-        uses: actions/checkout@v7
-
       - name: Install Composer dependencies
         run: cd tests && composer update --prefer-dist --no-progress --ansi
-
-      - name: Init Go modules Cache # Docs: <https://git.io/JfAKn#go---modules>
-        uses: actions/cache@v6
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: ${{ runner.os }}-go-
 
       - name: Install Go dependencies
         run: go mod download
