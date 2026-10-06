@@ -80,9 +80,7 @@ func createStartedWorker(t *testing.T, state int64) *worker.Process {
 // shutdownWatcher signals the watcher to stop (without calling Destroy which needs relay).
 func shutdownWatcher(ww *WorkerWatcher) {
 	ww.container.Destroy()
-	ww.stopOnce.Do(func() {
-		close(ww.stopCh)
-	})
+	ww.stop()
 }
 
 // TestWorkerWatcher_AllocateRetryTimeout verifies that Allocate returns a WorkerAllocate error

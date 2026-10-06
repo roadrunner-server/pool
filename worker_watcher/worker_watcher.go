@@ -36,7 +36,7 @@ type WorkerWatcher struct {
 	allocator       Allocator
 	allocateTimeout time.Duration
 	stopCh          chan struct{}
-	stopOnce        sync.Once
+	stop            func()
 	destroyed       atomic.Bool
 }
 
@@ -52,6 +52,9 @@ func NewSyncWorkerWatcher(allocator Allocator, log *slog.Logger, numWorkers uint
 		allocator:       allocator,
 		stopCh:          make(chan struct{}),
 	}
+	ww.stop = sync.OnceFunc(func() {
+		close(ww.stopCh)
+	})
 
 	ww.numWorkers.Store(numWorkers)
 	return ww
@@ -295,9 +298,7 @@ func (ww *WorkerWatcher) Destroy(ctx context.Context) {
 	if ww.destroyed.Load() {
 		return
 	}
-	ww.stopOnce.Do(func() {
-		close(ww.stopCh)
-	})
+	ww.stop()
 	ww.mu.Lock()
 	// do not release new workers
 	ww.container.Destroy()
