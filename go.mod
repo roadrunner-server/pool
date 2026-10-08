@@ -7,7 +7,7 @@ toolchain go1.27.0
 require (
 	github.com/roadrunner-server/errors v1.5.0
 	github.com/roadrunner-server/events v1.0.1
-	github.com/roadrunner-server/goridge/v4 v4.0.0-beta.3
+	github.com/roadrunner-server/goridge/v4 v4.0.0
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sync v0.23.0
