@@ -1257,7 +1257,9 @@ func TestPool_Reset_WhileExecInProgress(t *testing.T) {
 	r, err := p.Exec(t.Context(), &payload.Payload{Body: []byte("hello")}, make(chan struct{}))
 	require.NoError(t, err)
 	resp := <-r
-	assert.NotNil(t, resp.Body())
+	require.NoError(t, resp.Error())
+	// sleep_short.php responds with an empty payload, which can be nil or a zero-length slice
+	assert.Empty(t, resp.Body())
 
 	// New worker should have different PID
 	workers2 := p.Workers()
